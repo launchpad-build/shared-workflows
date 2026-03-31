@@ -10,6 +10,7 @@ set -euo pipefail
 
 SHARED_REPO="launchpad-build/shared-workflows"
 VERSION_SOURCE="package-xml"
+TEMPLATE_BASE="https://raw.githubusercontent.com/${SHARED_REPO}/main/setup/templates"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,6 +18,14 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+# Resolve template directory: local checkout or remote URL
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "${SCRIPT_DIR}/templates" ]; then
+  fetch_template() { cat "${SCRIPT_DIR}/templates/$1"; }
+else
+  fetch_template() { curl -sfL "${TEMPLATE_BASE}/$1"; }
+fi
 
 echo "Setting up news-fragment versioning (version-source: $VERSION_SOURCE)"
 
@@ -27,28 +36,7 @@ echo "  Created newsfragments/"
 
 # ── towncrier.toml ────────────────────────────────────────────────
 if [ ! -f towncrier.toml ]; then
-  cat > towncrier.toml <<'EOF'
-[tool.towncrier]
-directory = "newsfragments"
-filename = "CHANGELOG.md"
-title_format = "## {version} ({project_date})"
-underlines = ["", "", ""]
-
-[[tool.towncrier.type]]
-directory = "breaking"
-name = "Breaking changes"
-showcontent = true
-
-[[tool.towncrier.type]]
-directory = "feature"
-name = "Features"
-showcontent = true
-
-[[tool.towncrier.type]]
-directory = "fix"
-name = "Fixes"
-showcontent = true
-EOF
+  fetch_template "towncrier.toml" > towncrier.toml
   echo "  Created towncrier.toml"
 else
   echo "  towncrier.toml already exists, skipping"
@@ -56,11 +44,7 @@ fi
 
 # ── CHANGELOG.md seed ─────────────────────────────────────────────
 if [ ! -f CHANGELOG.md ]; then
-  cat > CHANGELOG.md <<'EOF'
-# Changelog
-
-<!-- towncrier release notes start -->
-EOF
+  fetch_template "CHANGELOG.md" > CHANGELOG.md
   echo "  Created CHANGELOG.md"
 else
   echo "  CHANGELOG.md already exists, skipping"
@@ -69,35 +53,16 @@ fi
 # ── Caller workflows ──────────────────────────────────────────────
 mkdir -p .github/workflows
 
-cat > .github/workflows/require-news-fragment-on-pr.yml <<EOF
-name: Require news fragment on pull request
+export SHARED_REPO VERSION_SOURCE
 
-on:
-  pull_request:
-    branches: [main]
-
-jobs:
-  check:
-    uses: ${SHARED_REPO}/.github/workflows/require-news-fragment.yml@main
-EOF
+fetch_template ".github/workflows/require-news-fragment-on-pr.yml" \
+  | envsubst '${SHARED_REPO}' \
+  > .github/workflows/require-news-fragment-on-pr.yml
 echo "  Created .github/workflows/require-news-fragment-on-pr.yml"
 
-cat > .github/workflows/release-on-merge.yml <<EOF
-name: Release version on merge to main
-
-on:
-  push:
-    branches: [main]
-
-permissions:
-  contents: write
-
-jobs:
-  release:
-    uses: ${SHARED_REPO}/.github/workflows/release-on-merge.yml@main
-    with:
-      version-source: ${VERSION_SOURCE}
-EOF
+fetch_template ".github/workflows/release-on-merge.yml" \
+  | envsubst '${SHARED_REPO} ${VERSION_SOURCE}' \
+  > .github/workflows/release-on-merge.yml
 echo "  Created .github/workflows/release-on-merge.yml"
 
 echo ""
