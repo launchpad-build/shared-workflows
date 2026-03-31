@@ -7,8 +7,14 @@ Reusable GitHub Actions workflows for news-fragment-driven semantic versioning.
 Run the bootstrap script from your repo root:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh | bash
+curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh \
+  | bash -s -- --version-source package-xml --ref 1.0.0
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
+| `--ref` | `main` | Tag or branch the caller workflows point at |
 
 This creates five files:
 
@@ -37,7 +43,7 @@ Commit to `main`.
 2. The workflow scans `newsfragments/` for `.breaking`, `.feature`, and `.fix` files.
 3. The highest-priority type sets the bump level: breaking = major, feature = minor, fix = patch.
 4. Towncrier compiles fragments into `CHANGELOG.md` and deletes them.
-5. The workflow writes the new version into every package.xml, commits, tags, and pushes.
+5. The workflow writes the new version into the manifest (`package.xml`, `package.json`, or `pyproject.toml`), commits, tags, and pushes.
 
 ### Fragment naming
 
