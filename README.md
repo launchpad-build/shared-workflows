@@ -56,8 +56,6 @@ The PR check workflow skips these paths by default:
 - `newsfragments/` (the fragments themselves)
 - `.github/` (CI configuration)
 - `CHANGELOG.md` (generated file)
-- `README.md` (documentation)
 - `towncrier.toml` (tooling config)
-- `.gitignore`
 
 Override via the `exclude-patterns` input if your repo needs different exemptions.

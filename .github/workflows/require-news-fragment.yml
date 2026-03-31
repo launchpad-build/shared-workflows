@@ -9,7 +9,7 @@ on:
           Matched against each line of git diff --name-only output.
         type: string
         required: false
-        default: '^(newsfragments/|\.github/|CHANGELOG\.md$|README\.md$|towncrier\.toml$|\.gitignore$)'
+        default: '^(newsfragments/|\.github/|CHANGELOG\.md$|towncrier\.toml$)'
       python-version:
         description: Python version used to run towncrier
         type: string
