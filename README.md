@@ -43,7 +43,7 @@ Commit to `main`.
 2. The workflow scans `newsfragments/` for `.breaking`, `.feature`, and `.fix` files.
 3. The highest-priority type sets the bump level: breaking = major, feature = minor, fix = patch.
 4. Towncrier compiles fragments into `CHANGELOG.md` and deletes them.
-5. The workflow writes the new version into the manifest (`package.xml`, `package.json`, or `pyproject.toml`), commits, tags, and pushes.
+5. The workflow writes the new version into every package.xml, commits, tags, and pushes.
 
 ### Fragment naming
 
