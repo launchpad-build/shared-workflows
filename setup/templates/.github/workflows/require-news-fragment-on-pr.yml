@@ -6,4 +6,4 @@ on:
 
 jobs:
   check:
-    uses: ${SHARED_REPO}/.github/workflows/require-news-fragment.yml@main
+    uses: ${SHARED_REPO}/.github/workflows/require-news-fragment.yml@${WORKFLOW_REF}

@@ -9,6 +9,6 @@ permissions:
 
 jobs:
   release:
-    uses: ${SHARED_REPO}/.github/workflows/release-on-merge.yml@main
+    uses: ${SHARED_REPO}/.github/workflows/release-on-merge.yml@${WORKFLOW_REF}
     with:
       version-source: ${VERSION_SOURCE}
