@@ -1,0 +1,49 @@
+name: Require news fragment on pull request
+
+on:
+  workflow_call:
+    inputs:
+      exclude-patterns:
+        description: >
+          Extended regex of file paths exempt from the fragment requirement.
+          Matched against each line of git diff --name-only output.
+        type: string
+        required: false
+        default: '^(newsfragments/|\.github/|CHANGELOG\.md$|README\.md$|towncrier\.toml$|\.gitignore$)'
+      python-version:
+        description: Python version used to run towncrier
+        type: string
+        required: false
+        default: "3.12"
+
+jobs:
+  require-news-fragment:
+    name: Require news fragment for source changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whether source files changed
+        id: changes
+        run: |
+          has_source=$(git diff --name-only origin/main...HEAD \
+            | grep -qvE '${{ inputs.exclude-patterns }}' \
+            && echo true || echo false)
+          echo "source=$has_source" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: steps.changes.outputs.source == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install towncrier
+        if: steps.changes.outputs.source == 'true'
+        run: pip install towncrier
+
+      - name: Validate that a news fragment exists
+        if: steps.changes.outputs.source == 'true'
+        run: towncrier check --compare-with origin/main
