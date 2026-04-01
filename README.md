@@ -7,8 +7,14 @@ Reusable GitHub Actions workflows for news-fragment-driven semantic versioning.
 Run the bootstrap script from your repo root:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh | bash
+curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh \
+  | bash -s -- --version-source package-xml --ref 1.0.0
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
+| `--ref` | `main` | Tag or branch the caller workflows point at |
 
 This creates five files:
 

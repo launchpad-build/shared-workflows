@@ -40,10 +40,8 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
-      - name: Install towncrier
-        if: steps.changes.outputs.source == 'true'
-        run: pip install towncrier
-
       - name: Validate that a news fragment exists
         if: steps.changes.outputs.source == 'true'
-        run: towncrier check --compare-with origin/main
+        run: |
+          pip install towncrier
+          towncrier check --compare-with origin/main

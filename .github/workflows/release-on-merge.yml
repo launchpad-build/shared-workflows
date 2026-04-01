@@ -25,28 +25,18 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build and publish a new version
+
+  # ── Detect ───────────────────────────────────────────────────────
+  detect:
+    name: Detect version bump
     runs-on: ubuntu-latest
-
     if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
-
+    outputs:
+      fragment: ${{ steps.detect.outputs.fragment }}
+      current-version: ${{ steps.version.outputs.current }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python-version }}
-
-      - name: Configure git identity for the release commit
-        uses: fregante/setup-git-user@v2
-
-      - name: Install towncrier
-        run: pip install towncrier
-
-      # -- Detect --------------------------------------------------------
 
       - name: Determine the version bump level from news fragments
         id: detect
@@ -63,15 +53,13 @@ jobs:
           fi
 
           fragment="bug"
-          for f in "$frag_dir"/*; do
+          for f in "${fragments[@]}"; do
             case "${f##*.}" in
               breaking) fragment="major"; break ;;
               feature) [ "$fragment" = "bug" ] && fragment="feature" ;;
             esac
           done
           echo "fragment=$fragment" >> "$GITHUB_OUTPUT"
-
-      # -- Version -------------------------------------------------------
 
       - name: Read the current version
         if: steps.detect.outputs.fragment != ''
@@ -108,22 +96,38 @@ jobs:
 
           echo "current=$current" >> "$GITHUB_OUTPUT"
 
+  # ── Release ──────────────────────────────────────────────────────
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: detect
+    if: needs.detect.outputs.fragment != ''
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Configure git identity for the release commit
+        uses: fregante/setup-git-user@v2
+
+      - name: Install towncrier
+        run: pip install towncrier
+
       - name: Calculate the next version
-        if: steps.detect.outputs.fragment != ''
         id: bump
         uses: christian-draeger/increment-semantic-version@1.2.3
         with:
-          current-version: ${{ steps.version.outputs.current }}
-          version-fragment: ${{ steps.detect.outputs.fragment }}
-
-      # -- Release -------------------------------------------------------
+          current-version: ${{ needs.detect.outputs.current-version }}
+          version-fragment: ${{ needs.detect.outputs.fragment }}
 
       - name: Compile news fragments into the changelog
-        if: steps.detect.outputs.fragment != ''
         run: towncrier build --version "${{ steps.bump.outputs.next-version }}" --yes
 
       - name: Write the new version into every manifest
-        if: steps.detect.outputs.fragment != ''
         run: |
           next="${{ steps.bump.outputs.next-version }}"
           source="${{ inputs.version-source }}"
@@ -149,16 +153,9 @@ jobs:
               ;;
           esac
 
-      - name: Commit the release
-        if: steps.detect.outputs.fragment != ''
+      - name: Commit, tag, and push the release
         run: |
           git add --all
           git commit -m "Release ${{ steps.bump.outputs.next-version }}"
-
-      - name: Tag the release
-        if: steps.detect.outputs.fragment != ''
-        run: git tag "${{ steps.bump.outputs.next-version }}"
-
-      - name: Push the release commit and tag
-        if: steps.detect.outputs.fragment != ''
-        run: git push origin main "${{ steps.bump.outputs.next-version }}"
+          git tag "${{ steps.bump.outputs.next-version }}"
+          git push origin main "${{ steps.bump.outputs.next-version }}"

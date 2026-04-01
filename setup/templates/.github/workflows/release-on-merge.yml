@@ -1,0 +1,14 @@
+name: Release version on merge to main
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: ${SHARED_REPO}/.github/workflows/release-on-merge.yml@${WORKFLOW_REF}
+    with:
+      version-source: ${VERSION_SOURCE}
