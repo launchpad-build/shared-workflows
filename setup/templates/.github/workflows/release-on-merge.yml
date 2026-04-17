@@ -12,3 +12,5 @@ jobs:
     uses: ${SHARED_REPO}/.github/workflows/release-on-merge.yml@${WORKFLOW_REF}
     with:
       version-source: ${VERSION_SOURCE}
+    secrets:
+      deploy-key: ${{ secrets.DEPLOY_KEY }}

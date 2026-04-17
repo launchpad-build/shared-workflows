@@ -20,6 +20,13 @@ on:
         type: string
         required: false
         default: newsfragments
+    secrets:
+      deploy-key:
+        description: >
+          SSH private key for a repo deploy key with write access. Required
+          when main is protected by a ruleset that lists "Deploy keys" as a
+          bypass actor, so the release commit and tag can push past the rule.
+        required: true
 
 permissions:
   contents: write
@@ -37,6 +44,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.deploy-key }}
 
       - name: Determine the version bump level from news fragments
         id: detect
@@ -105,6 +114,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.deploy-key }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
