@@ -108,6 +108,12 @@ jobs:
     needs: detect
     if: needs.detect.outputs.fragment != ''
     steps:
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ vars.LP_VERSION_BUMPER_ID }}
+          private-key: ${{ secrets.LP_VERSION_BUMPER_SECRET }}
+
       - name: Check out the repository
         uses: actions/checkout@v4
 
@@ -159,6 +165,8 @@ jobs:
           esac
 
       - name: Commit, tag, and push the release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git add --all
           git commit -m "Release ${{ steps.bump.outputs.next-version }}"
