@@ -2,13 +2,25 @@
 
 Reusable GitHub Actions workflows for news-fragment-driven semantic versioning.
 
+## Prerequisites
+
+The release workflow pushes a release commit and tag to `main`. It authenticates as a GitHub App so it can push through branch protection. Before bootstrapping a repo, confirm the following at the org:
+
+- A GitHub App exists with `Contents: read and write` permission.
+- The app is installed on the target repo.
+- The org variable `LP_VERSION_BUMPER_ID` holds the app id.
+- The org secret `LP_VERSION_BUMPER_SECRET` holds the app's private key in PEM form.
+- The `main` branch ruleset lists the app under bypass actors.
+
+Paste the private key verbatim when setting the secret. Keep the `-----BEGIN` and `-----END` lines and all newlines intact.
+
 ## Start
 
 Run the bootstrap script from your repo root:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh \
-  | bash -s -- --version-source package-xml --ref 1.0.0
+  | bash -s -- --version-source package-xml --ref 2.0.0
 ```
 
 | Flag | Default | Description |
