@@ -33,9 +33,10 @@ Commit to `main`.
 ### Workflow
 
 1. A developer opens a PR that changes source files.
-2. The workflow diffs the PR against `main`.
-3. If source files changed, `towncrier check` verifies a fragment exists.
-4. The PR blocks until a valid fragment is added.
+2. The workflow rejects any file in `newsfragments/` that is not `.gitkeep` or a valid fragment name.
+3. The workflow diffs the PR against `main`.
+4. If source files changed, `towncrier check` verifies a fragment exists.
+5. The PR blocks until a valid fragment is added.
 
 ### Release workflow
 
