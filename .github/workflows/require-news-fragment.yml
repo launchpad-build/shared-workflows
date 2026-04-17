@@ -15,6 +15,11 @@ on:
         type: string
         required: false
         default: "3.12"
+      fragment-directory:
+        description: Directory containing news fragments
+        type: string
+        required: false
+        default: newsfragments
 
 jobs:
   require-news-fragment:
@@ -25,6 +30,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Reject unsupported files in the fragment directory
+        run: |
+          frag_dir="${{ inputs.fragment-directory }}"
+          if [ ! -d "$frag_dir" ]; then
+            exit 0
+          fi
+
+          unsupported=$(find "$frag_dir" -mindepth 1 -maxdepth 1 -type f \
+            ! -name '.gitkeep' \
+            ! -name '*.breaking' ! -name '*.breaking.md' \
+            ! -name '*.feature' ! -name '*.feature.md' \
+            ! -name '*.fix'     ! -name '*.fix.md')
+
+          if [ -n "$unsupported" ]; then
+            echo "::error::Unsupported files in $frag_dir:"
+            echo "$unsupported"
+            echo "Allowed names: .gitkeep, or <id>.{breaking,feature,fix} with an optional .md suffix."
+            exit 1
+          fi
 
       - name: Check whether source files changed
         id: changes

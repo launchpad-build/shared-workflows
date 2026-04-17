@@ -44,7 +44,11 @@ jobs:
           frag_dir="${{ inputs.fragment-directory }}"
 
           shopt -s nullglob
-          fragments=("$frag_dir"/*.breaking "$frag_dir"/*.feature "$frag_dir"/*.fix)
+          fragments=(
+            "$frag_dir"/*.breaking "$frag_dir"/*.breaking.md
+            "$frag_dir"/*.feature  "$frag_dir"/*.feature.md
+            "$frag_dir"/*.fix      "$frag_dir"/*.fix.md
+          )
           shopt -u nullglob
 
           if [ ${#fragments[@]} -eq 0 ]; then
@@ -54,7 +58,8 @@ jobs:
 
           fragment="bug"
           for f in "${fragments[@]}"; do
-            case "${f##*.}" in
+            name=${f%.md}
+            case "${name##*.}" in
               breaking) fragment="major"; break ;;
               feature) [ "$fragment" = "bug" ] && fragment="feature" ;;
             esac
