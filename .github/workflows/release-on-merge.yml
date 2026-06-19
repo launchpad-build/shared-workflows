@@ -30,7 +30,6 @@ jobs:
   detect:
     name: Detect version bump
     runs-on: ubuntu-latest
-    if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
     outputs:
       fragment: ${{ steps.detect.outputs.fragment }}
       current-version: ${{ steps.version.outputs.current }}
@@ -41,6 +40,12 @@ jobs:
       - name: Determine the version bump level from news fragments
         id: detect
         run: |
+          subject=$(git log -1 --pretty=%s)
+          if [[ "$subject" =~ ^Release\ [0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Release commit detected. Nothing to release."
+            exit 0
+          fi
+
           frag_dir="${{ inputs.fragment-directory }}"
 
           shopt -s nullglob
