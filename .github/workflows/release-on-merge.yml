@@ -24,13 +24,19 @@ on:
 permissions:
   contents: write
 
+# Serialise releases per repository and branch. Concurrent runs would race on
+# the version bump and the push to main, producing duplicate tags or rejected
+# pushes. Queue runs instead of cancelling so no release is interrupted mid-push.
+concurrency:
+  group: release-on-merge-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
 
   # ── Detect ───────────────────────────────────────────────────────
   detect:
     name: Detect version bump
     runs-on: ubuntu-latest
-    if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
     outputs:
       fragment: ${{ steps.detect.outputs.fragment }}
       current-version: ${{ steps.version.outputs.current }}
@@ -41,6 +47,12 @@ jobs:
       - name: Determine the version bump level from news fragments
         id: detect
         run: |
+          subject=$(git log -1 --pretty=%s)
+          if [[ "$subject" =~ ^Release\ [0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release commit detected. Nothing to release."
+            exit 0
+          fi
+
           frag_dir="${{ inputs.fragment-directory }}"
 
           shopt -s nullglob
