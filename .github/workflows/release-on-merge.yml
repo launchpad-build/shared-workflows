@@ -24,6 +24,13 @@ on:
 permissions:
   contents: write
 
+# Serialise releases per repository and branch. Concurrent runs would race on
+# the version bump and the push to main, producing duplicate tags or rejected
+# pushes. Queue runs instead of cancelling so no release is interrupted mid-push.
+concurrency:
+  group: release-on-merge-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
 
   # ── Detect ───────────────────────────────────────────────────────
