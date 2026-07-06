@@ -182,7 +182,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          next="${{ steps.bump.outputs.next-version }}"
           git add --all
-          git commit -m "Release ${{ steps.bump.outputs.next-version }}"
-          git tag "${{ steps.bump.outputs.next-version }}"
-          git push origin main "${{ steps.bump.outputs.next-version }}"
+          git commit -m "Release ${next}"
+          git tag "${next}"
+
+          # main can advance if another PR merges while this run is in flight.
+          # Push branch and tag atomically so a rejected branch push never
+          # strands the tag on an orphaned commit. On rejection, rebase the
+          # release commit onto the refreshed main and retry.
+          for attempt in 1 2 3; do
+            if git push --atomic origin main "${next}"; then
+              exit 0
+            fi
+            echo "Push rejected on attempt ${attempt}; refreshing main and retrying."
+            git tag -d "${next}"
+            git fetch origin main
+            git rebase origin/main
+            git tag "${next}"
+          done
+
+          echo "::error::Failed to push release ${next} after 3 attempts."
+          exit 1
