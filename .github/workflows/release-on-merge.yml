@@ -198,7 +198,12 @@ jobs:
             echo "Push rejected on attempt ${attempt}; refreshing main and retrying."
             git tag -d "${next}"
             git fetch origin main
-            git rebase origin/main
+            if ! git rebase origin/main; then
+              git rebase --abort || true
+              echo "::error::Release ${next} conflicts with concurrent changes on main. \
+          Resolve manually rather than auto-merging so no changelog entry is lost, then rerun."
+              exit 1
+            fi
             git tag "${next}"
           done
 
