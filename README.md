@@ -8,7 +8,7 @@ Run the bootstrap script from your repo root:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh \
-  | bash -s -- --version-source package-xml --ref 2.0.2
+  | bash -s -- --version-source package-xml --ref 2.0.3
 ```
 
 | Flag | Default | Description |

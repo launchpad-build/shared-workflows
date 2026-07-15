@@ -39,7 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       fragment: ${{ steps.detect.outputs.fragment }}
-      current-version: ${{ steps.version.outputs.current }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -78,41 +77,6 @@ jobs:
           done
           echo "fragment=$fragment" >> "$GITHUB_OUTPUT"
 
-      - name: Read the current version
-        if: steps.detect.outputs.fragment != ''
-        id: version
-        run: |
-          source="${{ inputs.version-source }}"
-
-          case "$source" in
-            package-xml)
-              current=$(find . -name package.xml -type f -exec \
-                sed -n 's/.*<version>\(.*\)<\/version>.*/\1/p' {} + \
-                | sort -V | tail -1)
-              ;;
-            package-json)
-              current=$(find . -name package.json -not -path '*/node_modules/*' -type f -exec \
-                python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" {} \; \
-                | sort -V | tail -1)
-              ;;
-            pyproject-toml)
-              current=$(find . -name pyproject.toml -type f -exec \
-                python3 -c "
-          import tomllib, sys
-          with open(sys.argv[1], 'rb') as f:
-              data = tomllib.load(f)
-          v = data.get('project', {}).get('version', '')
-          if v: print(v)
-          " {} \; | sort -V | tail -1)
-              ;;
-            *)
-              echo "::error::Unknown version-source '$source'"
-              exit 1
-              ;;
-          esac
-
-          echo "current=$current" >> "$GITHUB_OUTPUT"
-
   # ── Release ──────────────────────────────────────────────────────
   release:
     name: Publish release
@@ -142,70 +106,93 @@ jobs:
       - name: Install towncrier
         run: pip install towncrier
 
-      - name: Calculate the next version
-        id: bump
-        uses: christian-draeger/increment-semantic-version@1.2.3
-        with:
-          current-version: ${{ needs.detect.outputs.current-version }}
-          version-fragment: ${{ needs.detect.outputs.fragment }}
-
-      - name: Compile news fragments into the changelog
-        run: towncrier build --version "${{ steps.bump.outputs.next-version }}" --yes
-
-      - name: Write the new version into every manifest
-        run: |
-          next="${{ steps.bump.outputs.next-version }}"
-          source="${{ inputs.version-source }}"
-
-          case "$source" in
-            package-xml)
-              find . -name package.xml -type f -exec \
-                sed -i "s|<version>.*</version>|<version>${next}</version>|" {} +
-              ;;
-            package-json)
-              find . -name package.json -not -path '*/node_modules/*' -type f -exec \
-                python3 -c "
-          import json, sys
-          path = sys.argv[1]
-          with open(path) as f: data = json.load(f)
-          data['version'] = sys.argv[2]
-          with open(path, 'w') as f: json.dump(data, f, indent=2)
-          " {} "$next" \;
-              ;;
-            pyproject-toml)
-              find . -name pyproject.toml -type f -exec \
-                sed -i "s|^version = \".*\"|version = \"${next}\"|" {} +
-              ;;
-          esac
-
-      - name: Commit, tag, and push the release
+      - name: Build and publish the release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          next="${{ steps.bump.outputs.next-version }}"
-          git add --all
-          git commit -m "Release ${next}"
-          git tag "${next}"
+          frag_dir="${{ inputs.fragment-directory }}"
+          source="${{ inputs.version-source }}"
 
-          # main can advance if another PR merges while this run is in flight.
-          # Push branch and tag atomically so a rejected branch push never
-          # strands the tag on an orphaned commit. On rejection, rebase the
-          # release commit onto the refreshed main and retry.
+          # main can advance while this run is in flight. Rebasing a release
+          # commit built against a stale tree silently carries forward any
+          # fragment a concurrent merge added, leaving it unreleased. Instead
+          # rebuild the whole release from the refreshed main on every attempt,
+          # then push branch and tag atomically.
           for attempt in 1 2 3; do
-            if git push --atomic origin main "${next}"; then
+            git fetch origin main
+            git reset --hard origin/main
+
+            shopt -s nullglob
+            fragments=(
+              "$frag_dir"/*.breaking "$frag_dir"/*.breaking.md
+              "$frag_dir"/*.feature  "$frag_dir"/*.feature.md
+              "$frag_dir"/*.fix      "$frag_dir"/*.fix.md
+            )
+            shopt -u nullglob
+            if [ ${#fragments[@]} -eq 0 ]; then
+              echo "No news fragments remain on main; a concurrent release already consumed them."
               exit 0
             fi
-            echo "Push rejected on attempt ${attempt}; refreshing main and retrying."
-            git tag -d "${next}"
-            git fetch origin main
-            if ! git rebase origin/main; then
-              git rebase --abort || true
-              echo "::error::Release ${next} conflicts with concurrent changes on main. \
-          Resolve manually rather than auto-merging so no changelog entry is lost, then rerun."
-              exit 1
-            fi
+
+            level="bug"
+            for f in "${fragments[@]}"; do
+              name=${f%.md}
+              case "${name##*.}" in
+                breaking) level="major"; break ;;
+                feature) if [ "$level" = "bug" ]; then level="feature"; fi ;;
+              esac
+            done
+
+            case "$source" in
+              package-xml)
+                current=$(find . -name package.xml -type f -exec \
+                  sed -n 's/.*<version>\(.*\)<\/version>.*/\1/p' {} + | sort -V | tail -1) ;;
+              package-json)
+                current=$(find . -name package.json -not -path '*/node_modules/*' -type f -exec \
+                  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" {} \; | sort -V | tail -1) ;;
+              pyproject-toml)
+                current=$(find . -name pyproject.toml -type f -exec \
+                  python3 -c "import tomllib,sys; print(tomllib.load(open(sys.argv[1],'rb')).get('project',{}).get('version',''))" {} \; | sort -V | tail -1) ;;
+              *)
+                echo "::error::Unknown version-source '$source'"
+                exit 1 ;;
+            esac
+
+            IFS=. read -r major minor patch <<< "$current"
+            case "$level" in
+              major)   major=$((major + 1)); minor=0; patch=0 ;;
+              feature) minor=$((minor + 1)); patch=0 ;;
+              bug)     patch=$((patch + 1)) ;;
+            esac
+            next="${major}.${minor}.${patch}"
+            echo "Releasing ${next} (${level} bump from ${current}) on attempt ${attempt}."
+
+            towncrier build --version "$next" --yes
+
+            case "$source" in
+              package-xml)
+                find . -name package.xml -type f -exec \
+                  sed -i "s|<version>.*</version>|<version>${next}</version>|" {} + ;;
+              package-json)
+                find . -name package.json -not -path '*/node_modules/*' -type f -exec \
+                  python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d['version']=sys.argv[2]; open(p,'w').write(json.dumps(d, indent=2))" {} "$next" \; ;;
+              pyproject-toml)
+                find . -name pyproject.toml -type f -exec \
+                  sed -i "s|^version = \".*\"|version = \"${next}\"|" {} + ;;
+            esac
+
+            git add --all
+            git commit -m "Release ${next}"
             git tag "${next}"
+
+            if git push --atomic origin main "${next}"; then
+              echo "Released ${next}."
+              exit 0
+            fi
+
+            echo "Push rejected on attempt ${attempt}; main advanced. Recomputing from the refreshed main."
+            git tag -d "${next}" || true
           done
 
-          echo "::error::Failed to push release ${next} after 3 attempts."
+          echo "::error::Failed to push the release after 3 attempts."
           exit 1
