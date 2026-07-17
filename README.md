@@ -37,9 +37,14 @@ uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@la
 ```
 
 `latest` is a moving tag that points at the newest release. A consumer pinned at
-`@latest` picks up each new release with no pin bump. Pin a fixed version instead
-(for example `@2.0.3`) when you need a reproducible ref and want to bump
-deliberately.
+`@latest` picks up each new release with no pin bump.
+
+Pin a fixed version instead when you need a reproducible ref and want to bump
+deliberately:
+
+```yaml
+uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.0.3
+```
 
 ### Moving the latest tag
 
