@@ -8,13 +8,13 @@ Run the bootstrap script from your repo root:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh \
-  | bash -s -- --version-source package-xml --ref 2.0.3
+  | bash -s -- --version-source package-xml --ref latest
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
-| `--ref` | `main` | Tag or branch the caller workflows point at |
+| `--ref` | `latest` | Tag or branch the caller workflows point at |
 
 This creates five files:
 
@@ -27,6 +27,34 @@ This creates five files:
 | `.github/workflows/release-on-merge.yml` | Caller workflow for releases |
 
 Commit to `main`.
+
+## Tracking releases
+
+Pin the caller workflows at `latest` to always run the newest release:
+
+```yaml
+uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@latest
+```
+
+`latest` is a moving tag that points at the newest release. A consumer pinned at
+`@latest` picks up each new release with no pin bump. Pin a fixed version instead
+(for example `@2.0.3`) when you need a reproducible ref and want to bump
+deliberately.
+
+### Moving the latest tag
+
+`latest` points at a commit that contains `.github/workflows`, so moving it is a
+workflow-file change. GitHub refuses those pushes from a CI token, but a user push
+over SSH carries them. Move the tag by hand when you cut a release, right after the
+version tag is pushed:
+
+```bash
+./setup/move-latest.sh          # points latest at the newest semver tag
+./setup/move-latest.sh 2.1.0    # or name the release tag explicitly
+```
+
+Run it from a checkout with push rights. It fetches tags, force-moves `latest`,
+and pushes it.
 
 ## How it works
 
