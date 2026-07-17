@@ -46,18 +46,6 @@ deliberately:
 uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.0.3
 ```
 
-### Moving the latest tag
-
-`latest` points at a commit that contains `.github/workflows`, so moving it is a
-workflow-file change. GitHub refuses those pushes from a CI token, but a user push
-over SSH carries them. Move the tag by hand from a checkout with push rights, right
-after you push the release tag:
-
-```bash
-git tag -f latest 2.1.0
-git push --force origin latest
-```
-
 ## How it works
 
 ### Workflow
