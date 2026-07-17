@@ -24,12 +24,12 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -d "${SCRIPT_DIR}/templates" ]; then
   if [ -z "$WORKFLOW_REF" ]; then
-    WORKFLOW_REF=$(git -C "$SCRIPT_DIR" describe --tags --exact-match 2>/dev/null || echo "main")
+    WORKFLOW_REF=$(git -C "$SCRIPT_DIR" describe --tags --exact-match 2>/dev/null || echo "latest")
   fi
   fetch_template() { cat "${SCRIPT_DIR}/templates/$1"; }
 else
   if [ -z "$WORKFLOW_REF" ]; then
-    WORKFLOW_REF="main"
+    WORKFLOW_REF="latest"
   fi
   TEMPLATE_BASE="https://raw.githubusercontent.com/${SHARED_REPO}/${WORKFLOW_REF}/setup/templates"
   fetch_template() { curl -sfL "${TEMPLATE_BASE}/$1"; }

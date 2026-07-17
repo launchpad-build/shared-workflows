@@ -8,13 +8,13 @@ Run the bootstrap script from your repo root:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main/setup/bootstrap.sh \
-  | bash -s -- --version-source package-xml --ref 2.0.3
+  | bash -s -- --version-source package-xml --ref latest
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
-| `--ref` | `main` | Tag or branch the caller workflows point at |
+| `--ref` | `latest` | Tag or branch the caller workflows point at |
 
 This creates five files:
 
@@ -27,6 +27,24 @@ This creates five files:
 | `.github/workflows/release-on-merge.yml` | Caller workflow for releases |
 
 Commit to `main`.
+
+## Tracking releases
+
+Pin the caller workflows at `latest` to always run the newest release:
+
+```yaml
+uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@latest
+```
+
+`latest` is a moving tag that points at the newest release. A consumer pinned at
+`@latest` picks up each new release with no pin bump.
+
+Pin a fixed version instead when you need a reproducible ref and want to bump
+deliberately:
+
+```yaml
+uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.0.3
+```
 
 ## How it works
 
