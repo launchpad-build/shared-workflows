@@ -62,7 +62,9 @@ uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.
 2. The workflow scans `newsfragments/` for `.breaking`, `.feature`, and `.fix` files, with an optional trailing `.md` suffix.
 3. The highest-priority type sets the bump level: breaking = major, feature = minor, fix = patch.
 4. Towncrier compiles fragments into `CHANGELOG.md` and deletes them.
-5. The workflow writes the new version into every package.xml, commits, tags, and pushes.
+5. The workflow writes the new version into every package.xml.
+6. If `.github/version-stamp.sh` exists, the workflow runs it with the new version.
+7. The workflow commits, tags, and pushes.
 
 ### Fragment naming
 

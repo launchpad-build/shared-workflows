@@ -20,6 +20,14 @@ on:
         type: string
         required: false
         default: newsfragments
+      stamp-script:
+        description: >
+          Script run with the new version as its only argument after the
+          manifest is bumped and before the release commit, so anything it
+          rewrites lands in the tagged commit. Skipped when the path is absent.
+        type: string
+        required: false
+        default: .github/version-stamp.sh
 
 permissions:
   contents: write
@@ -112,6 +120,7 @@ jobs:
         run: |
           frag_dir="${{ inputs.fragment-directory }}"
           source="${{ inputs.version-source }}"
+          stamp_script="${{ inputs.stamp-script }}"
 
           # main can advance while this run is in flight. Rebasing a release
           # commit built against a stale tree silently carries forward any
@@ -180,6 +189,14 @@ jobs:
                 find . -name pyproject.toml -type f -exec \
                   sed -i "s|^version = \".*\"|version = \"${next}\"|" {} + ;;
             esac
+
+            # Inside the loop because the reset above discards what a previous
+            # attempt wrote. Run through bash so a missing execute bit is not a
+            # failure, and without the app token so the script cannot push.
+            if [ -f "$stamp_script" ]; then
+              echo "Stamping ${next} via ${stamp_script}."
+              env -u GITHUB_TOKEN bash "$stamp_script" "$next"
+            fi
 
             git add --all
             git commit -m "Release ${next}"
