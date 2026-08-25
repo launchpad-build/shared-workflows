@@ -160,8 +160,12 @@ jobs:
                 current=$(find . -name package.json -not -path '*/node_modules/*' -type f -exec \
                   python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" {} \; | sort -V | tail -1) ;;
               pyproject-toml)
+                # `find -exec` substitutes every `{}` in the command, not just a
+                # standalone one -- `.get('project',{})`'s empty-dict literal was
+                # getting replaced with the matched filename too, corrupting the
+                # one-liner into a syntax error. `dict()` has no braces to collide.
                 current=$(find . -name pyproject.toml -type f -exec \
-                  python3 -c "import tomllib,sys; print(tomllib.load(open(sys.argv[1],'rb')).get('project',{}).get('version',''))" {} \; | sort -V | tail -1) ;;
+                  python3 -c "import tomllib,sys; print(tomllib.load(open(sys.argv[1],'rb')).get('project',dict()).get('version',''))" {} \; | sort -V | tail -1) ;;
               *)
                 echo "::error::Unknown version-source '$source'"
                 exit 1 ;;
