@@ -160,8 +160,8 @@ jobs:
                 current=$(find . -name package.json -not -path '*/node_modules/*' -type f -exec \
                   python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" {} \; | sort -V | tail -1) ;;
               pyproject-toml)
-                current=$(find . -name pyproject.toml -type f -exec \
-                  python3 -c "import tomllib,sys; print(tomllib.load(open(sys.argv[1],'rb')).get('project',{}).get('version',''))" {} \; | sort -V | tail -1) ;;
+                current=$(find . -name pyproject.toml -type f -print0 | 
+                  xargs -0 -n1 python3 -c "import tomllib,sys; print(tomllib.load(open(sys.argv[1],'rb')).get('project',dict()).get('version',''))" | sort -V | tail -1) ;;
               *)
                 echo "::error::Unknown version-source '$source'"
                 exit 1 ;;
