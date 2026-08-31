@@ -75,7 +75,12 @@ jobs:
 The job pulls the container image with `ghcr-token`. `secrets: inherit` does not
 cover it, because inheritance matches on name and the organisation secret is
 called `GHCR_READ_TOKEN`, so pass it through explicitly. Omit the secret and the
-job falls back to its own `GITHUB_TOKEN`.
+job pulls without logging in, which only works for a public image.
+
+`GHCR_READ_TOKEN` is a repository secret, not an organisation one. A repository
+adopting this workflow needs it added, or it cannot pull the default image.
+`versioning-demo` has no such secret, so its caller overrides `container-image`
+with the public `ros:jazzy-ros-base`.
 
 | Input | Default | Description |
 |-------|---------|-------------|

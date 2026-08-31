@@ -32,8 +32,8 @@ on:
     secrets:
       ghcr-token:
         description: >
-          Token used to pull the container image from ghcr.io. Falls back to the
-          job's own GITHUB_TOKEN when the caller passes nothing.
+          Token used to pull the container image from a private registry. Leave
+          it unset for a public image and the job pulls without logging in.
         required: false
 
 concurrency:
@@ -47,8 +47,8 @@ jobs:
     container:
       image: ${{ inputs.container-image }}
       credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.ghcr-token || github.token }}
+        username: ${{ secrets.ghcr-token && github.actor || '' }}
+        password: ${{ secrets.ghcr-token || '' }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v4
