@@ -14,6 +14,11 @@ on:
         type: string
         required: false
         default: ghcr.io/launchpad-build/launchpad-ros2-jazzy:main
+      registry:
+        description: Registry logged into before the image is pulled
+        type: string
+        required: false
+        default: ghcr.io
       ros-distro:
         description: ROS 2 distribution sourced before the build
         type: string
@@ -32,8 +37,8 @@ on:
     secrets:
       ghcr-token:
         description: >
-          Token used to pull the container image from a private registry. Leave
-          it unset for a public image and the job pulls without logging in.
+          Token used to pull the image from a private registry. Leave it unset
+          for a public image and the job pulls without logging in.
         required: false
 
 concurrency:
@@ -44,55 +49,72 @@ jobs:
   build-and-test:
     name: Build and test ${{ inputs.package }}
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.container-image }}
-      credentials:
-        username: ${{ secrets.ghcr-token && github.actor || '' }}
-        password: ${{ secrets.ghcr-token || '' }}
+    env:
+      IMAGE: ${{ inputs.container-image }}
+      PACKAGES: ${{ inputs.package }}
+      ROS_DISTRO: ${{ inputs.ros-distro }}
+      REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v4
         with:
           path: src/repo
 
+      - name: Log in to the container registry
+        if: env.REGISTRY_TOKEN != ''
+        run: |
+          echo "$REGISTRY_TOKEN" \
+            | docker login "${{ inputs.registry }}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull the container image
+        run: docker pull "$IMAGE"
+
       - name: Build the package
-        shell: bash
         env:
-          PACKAGES: ${{ inputs.package }}
           BUILD_ARGS: ${{ inputs.colcon-build-args }}
         run: |
-          source "/opt/ros/${{ inputs.ros-distro }}/setup.bash"
-          colcon build \
-            --packages-select $PACKAGES \
-            --event-handlers console_direct+ \
-            $BUILD_ARGS
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/ws -w /ws \
+            -e PACKAGES -e ROS_DISTRO -e BUILD_ARGS \
+            "$IMAGE" bash -c '
+              set -e
+              source "/opt/ros/$ROS_DISTRO/setup.bash"
+              colcon build \
+                --packages-select $PACKAGES \
+                --event-handlers console_direct+ \
+                $BUILD_ARGS
+            '
 
       - name: Test the package
         id: test
-        shell: bash
         env:
-          PACKAGES: ${{ inputs.package }}
           TEST_ARGS: ${{ inputs.colcon-test-args }}
         run: |
-          source "/opt/ros/${{ inputs.ros-distro }}/setup.bash"
           set +e
-          colcon test \
-            --packages-select $PACKAGES \
-            --event-handlers console_cohesion+ \
-            --return-code-on-test-failure \
-            $TEST_ARGS
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/ws -w /ws \
+            -e PACKAGES -e ROS_DISTRO -e TEST_ARGS \
+            "$IMAGE" bash -c '
+              source "/opt/ros/$ROS_DISTRO/setup.bash"
+              colcon test \
+                --packages-select $PACKAGES \
+                --event-handlers console_cohesion+ \
+                --return-code-on-test-failure \
+                $TEST_ARGS
+              rc=$?
+              colcon test-result --all --verbose || true
+              exit $rc
+            '
           rc=$?
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          colcon test-result --all --verbose || true
 
       - name: Summarise the test results
         if: always()
-        shell: bash
         env:
-          PACKAGES: ${{ inputs.package }}
           TEST_RC: ${{ steps.test.outputs.rc }}
         run: |
+          sudo chown -R "$(id -u):$(id -g)" build || true
           python3 - <<'PY'
           import glob
           import os
@@ -115,10 +137,9 @@ jobs:
           for path in sorted(paths):
               try:
                   root = ET.parse(path).getroot()
-              except ET.ParseError:
+              except (ET.ParseError, OSError):
                   continue
-              suites = root.iter("testsuite")
-              for suite in suites:
+              for suite in root.iter("testsuite"):
                   cases = suite.findall("testcase")
                   if not cases:
                       continue
