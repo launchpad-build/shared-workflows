@@ -14,6 +14,13 @@ on:
         type: string
         required: false
         default: ghcr.io/launchpad-build/launchpad-ros2-jazzy:main
+      base-paths:
+        description: >
+          Paths colcon crawls for packages. Override it when the repository has a
+          package.xml at its root, because colcon stops descending at a package.
+        type: string
+        required: false
+        default: src
       registry:
         description: Registry logged into before the image is pulled
         type: string
@@ -53,6 +60,7 @@ jobs:
       IMAGE: ${{ inputs.container-image }}
       PACKAGES: ${{ inputs.package }}
       ROS_DISTRO: ${{ inputs.ros-distro }}
+      BASE_PATHS: ${{ inputs.base-paths }}
       REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
     steps:
       - name: Check out the pull request
@@ -75,15 +83,29 @@ jobs:
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE":/ws -w /ws \
-            -e PACKAGES -e ROS_DISTRO -e BUILD_ARGS \
+            -e PACKAGES -e ROS_DISTRO -e BASE_PATHS -e BUILD_ARGS \
             "$IMAGE" bash -c '
               set -e
               source "/opt/ros/$ROS_DISTRO/setup.bash"
               colcon build \
+                --base-paths $BASE_PATHS \
                 --packages-select $PACKAGES \
                 --event-handlers console_direct+ \
                 $BUILD_ARGS
             '
+
+      - name: Confirm every selected package built
+        run: |
+          missing=""
+          for package in $PACKAGES; do
+            if [ ! -d "build/$package" ]; then
+              missing="$missing $package"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::colcon found no package named:$missing. Check the package input and base-paths."
+            exit 1
+          fi
 
       - name: Test the package
         id: test
@@ -93,10 +115,11 @@ jobs:
           set +e
           docker run --rm \
             -v "$GITHUB_WORKSPACE":/ws -w /ws \
-            -e PACKAGES -e ROS_DISTRO -e TEST_ARGS \
+            -e PACKAGES -e ROS_DISTRO -e BASE_PATHS -e TEST_ARGS \
             "$IMAGE" bash -c '
               source "/opt/ros/$ROS_DISTRO/setup.bash"
               colcon test \
+                --base-paths $BASE_PATHS \
                 --packages-select $PACKAGES \
                 --event-handlers console_cohesion+ \
                 --return-code-on-test-failure \
