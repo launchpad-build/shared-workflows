@@ -86,24 +86,69 @@ with the public `ros:jazzy-ros-base`.
 |-------|---------|-------------|
 | `package` | required | Package to build and test. Space-separated for several packages in one repository. |
 | `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
-| `base-paths` | `src` | Paths colcon crawls for packages |
+| `base-paths` | `src` | Paths colcon crawls for packages. Space-separated for several roots. |
 | `registry` | `ghcr.io` | Registry logged into before the image is pulled |
 | `ros-distro` | `jazzy` | Distribution sourced before the build |
+| `install-dependencies` | `true` | Run `rosdep install` over the crawled packages before building |
 | `colcon-build-args` | empty | Extra arguments appended to `colcon build` |
 | `colcon-test-args` | empty | Extra arguments appended to `colcon test` |
 
 ### What the job does
 
 1. Checks the repository out into `src/repo`.
-2. Logs into the registry when `ghcr-token` is set, then pulls the image and runs each colcon command in it with `docker run`.
-3. Runs `colcon build --packages-select <package>`, so nothing else in the workspace builds.
-4. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
-5. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
-6. Parses the JUnit XML under `build/<package>` and writes a results table to the run summary, with a bullet per failing test naming the suite, the case, and the first line of the failure.
-7. Exits non-zero when any test fails, which fails the check.
+2. Logs into the registry when `ghcr-token` is set, then pulls the image.
+3. Starts one long-lived container and runs every later step in it with `docker exec`.
+4. Runs `rosdep install` over the crawled packages, unless `install-dependencies` is false.
+5. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
+6. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
+7. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
+8. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
+9. Exits non-zero when any test fails, which fails the check.
 
-A package with no tests passes. The summary then reads `No tests found for
-<package>.` and the run carries a notice annotation saying the same.
+### Why the job is shaped this way
+
+Each choice below answers a failure seen on a real run, not a preference.
+
+**One container, not one `docker run` per step.** `rosdep install` writes into the
+running container's filesystem. A fresh container per step throws those packages
+away before the build can use them, so every step shares a single container
+started once and removed at the end.
+
+**`rosdep install` by default.** A package can declare a dependency the image does
+not carry. `digitool_ros2_perception` declares `python3-pytest-cov`, which
+`ros:jazzy-ros-base` lacks. Set `install-dependencies` to false for an image that
+already carries the full dependency set and you save about ten seconds.
+
+**`--packages-up-to` to build, `--packages-select` to test.** A package that
+depends on a sibling in the same repository cannot configure under
+`--packages-select` alone. `digitool_action_primitives_interfaces` depends on
+`digitool_std_msgs`, and selecting it on its own fails at configure with
+`Failed to find the following files: install/digitool_std_msgs/.../package.sh`.
+Building up to it pulls the sibling in. Testing still selects only the requested
+packages, so a sibling's results never land in this repository's check.
+
+**The result glob is pinned.** Results are read from
+`build/<package>/test_results/**/*.xml` and from XML directly under
+`build/<package>`, which is where ament writes gtest and linter xunit files and
+where colcon writes `pytest.xml`. A recursive glob over the whole build directory
+also swallows CTest's own `Testing/<stamp>/Test.xml` and any XML fixture a package
+vendors.
+
+**The failure name comes from `classname`.** A pytest suite is called `pytest`
+whatever it holds, so the suite name alone reports
+`pytest.test_something`. The `classname` attribute carries the module, giving
+`digitool_ros2_perception.test.test_config.test_something` instead.
+
+**The exit code is checked even when no tests were found.** A test that crashes
+before writing its XML leaves no failing case to report. Reporting "no tests
+found" and passing would turn a crash into a green check.
+
+**Failure bullets are capped at twenty.** One mixed-case CMake command produced
+fourteen `lint_cmake` failures on a single file. A long linter run would otherwise
+bury the summary.
+
+A package with no tests passes. Its row reads `no tests` and the run carries a
+notice annotation naming the packages that had none.
 
 ### Blocking the pull request
 
@@ -114,8 +159,10 @@ The check only blocks a merge once the repository ruleset requires it. Add a
 gh api repos/launchpad-build/<repo>/rulesets/<id> --jq '.rules'
 ```
 
-The check name is the caller job name, then the reusable workflow's job name,
-for example `build-and-test / Build and test demo_pkg`. Read the exact string
+The check name is the caller job id, then the reusable workflow's job name, for
+example `build-and-test / Build and test`. The job name deliberately omits the
+package input, so changing which packages a repository tests does not leave a
+stale required context behind. Read the exact string
 off a real run before writing it into the ruleset:
 
 ```bash
