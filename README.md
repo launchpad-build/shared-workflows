@@ -63,6 +63,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
@@ -141,7 +144,8 @@ whatever it holds, so the suite name alone reports
 
 **The exit code is checked even when no tests were found.** A test that crashes
 before writing its XML leaves no failing case to report. Reporting "no tests
-found" and passing would turn a crash into a green check.
+found" and passing would turn a crash into a green check. A result file that
+cannot be parsed fails the job for the same reason.
 
 **Failure bullets are capped at twenty.** One mixed-case CMake command produced
 fourteen `lint_cmake` failures on a single file. A long linter run would otherwise

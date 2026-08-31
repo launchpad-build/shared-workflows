@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     uses: ${SHARED_REPO}/.github/workflows/build-and-test.yml@${WORKFLOW_REF}
