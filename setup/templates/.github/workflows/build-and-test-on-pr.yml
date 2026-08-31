@@ -1,0 +1,12 @@
+name: Build and test on pull request
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    uses: ${SHARED_REPO}/.github/workflows/build-and-test.yml@${WORKFLOW_REF}
+    with:
+      package: ${PACKAGE}
+    secrets: inherit

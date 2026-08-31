@@ -1,0 +1,163 @@
+name: Build and test package
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: >
+          Package to build and test. Space-separated list for a repository that
+          holds more than one package.
+        type: string
+        required: true
+      container-image:
+        description: Container image holding the ROS 2 build environment
+        type: string
+        required: false
+        default: ghcr.io/launchpad-build/launchpad-ros2-jazzy:main
+      ros-distro:
+        description: ROS 2 distribution sourced before the build
+        type: string
+        required: false
+        default: jazzy
+      colcon-build-args:
+        description: Extra arguments appended to colcon build
+        type: string
+        required: false
+        default: ""
+      colcon-test-args:
+        description: Extra arguments appended to colcon test
+        type: string
+        required: false
+        default: ""
+    secrets:
+      ghcr-token:
+        description: Token used to pull the container image from ghcr.io
+        required: true
+
+concurrency:
+  group: build-and-test-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test ${{ inputs.package }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.container-image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.ghcr-token }}
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          path: src/repo
+
+      - name: Build the package
+        shell: bash
+        env:
+          PACKAGES: ${{ inputs.package }}
+          BUILD_ARGS: ${{ inputs.colcon-build-args }}
+        run: |
+          source "/opt/ros/${{ inputs.ros-distro }}/setup.bash"
+          colcon build \
+            --packages-select $PACKAGES \
+            --event-handlers console_direct+ \
+            $BUILD_ARGS
+
+      - name: Test the package
+        id: test
+        shell: bash
+        env:
+          PACKAGES: ${{ inputs.package }}
+          TEST_ARGS: ${{ inputs.colcon-test-args }}
+        run: |
+          source "/opt/ros/${{ inputs.ros-distro }}/setup.bash"
+          set +e
+          colcon test \
+            --packages-select $PACKAGES \
+            --event-handlers console_cohesion+ \
+            --return-code-on-test-failure \
+            $TEST_ARGS
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          colcon test-result --all --verbose || true
+
+      - name: Summarise the test results
+        if: always()
+        shell: bash
+        env:
+          PACKAGES: ${{ inputs.package }}
+          TEST_RC: ${{ steps.test.outputs.rc }}
+        run: |
+          python3 - <<'PY'
+          import glob
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          packages = os.environ.get("PACKAGES", "").split()
+          test_rc = os.environ.get("TEST_RC") or "0"
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+
+          paths = set()
+          for package in packages:
+              paths.update(glob.glob(f"build/{package}/**/*.xml", recursive=True))
+              paths.update(glob.glob(f"build/{package}/test_results/**/*.xml", recursive=True))
+
+          total = passed = failed = skipped = 0
+          failures = []
+          suites_seen = False
+
+          for path in sorted(paths):
+              try:
+                  root = ET.parse(path).getroot()
+              except ET.ParseError:
+                  continue
+              suites = root.iter("testsuite")
+              for suite in suites:
+                  cases = suite.findall("testcase")
+                  if not cases:
+                      continue
+                  suites_seen = True
+                  suite_name = suite.get("name") or "suite"
+                  for case in cases:
+                      total += 1
+                      case_name = case.get("name") or "case"
+                      problems = case.findall("failure") + case.findall("error")
+                      if case.find("skipped") is not None:
+                          skipped += 1
+                      elif problems:
+                          failed += 1
+                          detail = problems[0].get("message") or (problems[0].text or "")
+                          first_line = detail.strip().splitlines()[0] if detail.strip() else "no detail reported"
+                          failures.append((f"{suite_name}.{case_name}", first_line))
+                      else:
+                          passed += 1
+
+          label = ", ".join(packages) if packages else "the selected packages"
+
+          with open(summary_path, "a", encoding="utf-8") as summary:
+              if not suites_seen or total == 0:
+                  summary.write(f"### Test results\n\nNo tests found for {label}.\n")
+                  print(f"::notice::No tests found for {label}.")
+                  sys.exit(0)
+
+              summary.write("### Test results\n\n")
+              summary.write(f"Package: {label}\n\n")
+              summary.write("| Total | Passed | Failed | Skipped |\n")
+              summary.write("| --- | --- | --- | --- |\n")
+              summary.write(f"| {total} | {passed} | {failed} | {skipped} |\n")
+              if failures:
+                  summary.write("\n**Failing tests**\n\n")
+                  for name, first_line in failures:
+                      summary.write(f"- {name}: {first_line}\n")
+
+          for name, first_line in failures:
+              print(f"::error::{name}: {first_line}")
+
+          if failures or test_rc != "0":
+              print(f"::error::colcon test reported failures (exit code {test_rc}).")
+              sys.exit(1)
+          PY

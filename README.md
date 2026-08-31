@@ -15,8 +15,9 @@ curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main
 |------|---------|-------------|
 | `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
 | `--ref` | `latest` | Tag or branch the caller workflows point at |
+| `--package` | none | Package to build and test on a pull request. Omit to skip the build-and-test caller. |
 
-This creates five files:
+This creates five files, plus a sixth when `--package` is given:
 
 | File | Purpose |
 |------|---------|
@@ -25,6 +26,7 @@ This creates five files:
 | `CHANGELOG.md` | Changelog file |
 | `.github/workflows/require-news-fragment-on-pr.yml` | Caller workflow for PR checks |
 | `.github/workflows/release-on-merge.yml` | Caller workflow for releases |
+| `.github/workflows/build-and-test-on-pr.yml` | Caller workflow for colcon build and test, only with `--package` |
 
 Commit to `main`.
 
@@ -45,6 +47,90 @@ deliberately:
 ```yaml
 uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.0.3
 ```
+
+## Build and test on pull request
+
+`build-and-test.yml` builds and tests one repository's packages inside the ROS 2
+container, on every pull request. A failing test fails the check, and the run
+summary names each failing test.
+
+### Caller
+
+```yaml
+name: Build and test on pull request
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
+    with:
+      package: my_package
+    secrets: inherit
+```
+
+`secrets: inherit` passes the organisation `GHCR_READ_TOKEN` through as the
+`ghcr-token` secret, which the job uses to pull the container image.
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `package` | required | Package to build and test. Space-separated for several packages in one repository. |
+| `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
+| `ros-distro` | `jazzy` | Distribution sourced before the build |
+| `colcon-build-args` | empty | Extra arguments appended to `colcon build` |
+| `colcon-test-args` | empty | Extra arguments appended to `colcon test` |
+
+### What the job does
+
+1. Checks the repository out into `src/repo`.
+2. Runs `colcon build --packages-select <package>`, so nothing else in the workspace builds.
+3. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
+4. Parses the JUnit XML under `build/<package>` and writes a results table to the run summary, with a bullet per failing test naming the suite, the case, and the first line of the failure.
+5. Exits non-zero when any test fails, which fails the check.
+
+A package with no tests passes. The summary then reads `No tests found for
+<package>.` and the run carries a notice annotation saying the same.
+
+### Blocking the pull request
+
+The check only blocks a merge once the repository ruleset requires it. Add a
+`required_status_checks` rule naming the check to the ruleset on `main`:
+
+```bash
+gh api repos/launchpad-build/<repo>/rulesets/<id> --jq '.rules'
+```
+
+The check name is the caller job name, then the reusable workflow's job name,
+for example `build-and-test / Build and test demo_pkg`. Read the exact string
+off a real run before writing it into the ruleset:
+
+```bash
+gh api repos/launchpad-build/<repo>/commits/<sha>/check-runs --jq '.check_runs[].name'
+```
+
+Do not add classic branch protection. It overrides the ruleset bypass actors and
+blocks the release push.
+
+### Rollout
+
+`versioning-demo` carries the reference implementation. The rest of the estate
+adopts the same caller, with the `package` input set to that repository's
+packages:
+
+| Repository | `package` input |
+|------------|-----------------|
+| `l3h-bringup` | `l3h_bringup` |
+| `digitool-bringup` | `digitool_bringup` |
+| `digitool-control` | `digitool_control digitool_motion_planner` |
+| `digitool-common` | `digitool_bist digitool_health_monitor digitool_job_generator digitool_job_tracker digitool_mock digitool_object_store digitool_parameter_manager digitool_ros_utils digitool_state_monitor mqtt_ros2_bridge` |
+| `digitool-peripherals` | `digitool_calibration digitool_cylinder_utils digitool_delta_regis_screwdriver digitool_gripper_io digitool_lift_swing digitool_presenter digitool_qa_camera digitool_safety_io digitool_silo digitool_silo_utils digitool_stack_light digitool_vibe_coordinator digitool_vibe_feeder digitool_vibe_pulse digitool_vibe_station` |
+
+Each repository also needs the required-status-check rule added to its own
+ruleset, and a package whose dependencies all resolve inside the container. A
+package that depends on a sibling private repository needs that repository
+imported first, which this workflow does not do.
 
 ## How it works
 
