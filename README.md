@@ -86,6 +86,7 @@ with the public `ros:jazzy-ros-base`.
 |-------|---------|-------------|
 | `package` | required | Package to build and test. Space-separated for several packages in one repository. |
 | `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
+| `registry` | `ghcr.io` | Registry logged into before the image is pulled |
 | `ros-distro` | `jazzy` | Distribution sourced before the build |
 | `colcon-build-args` | empty | Extra arguments appended to `colcon build` |
 | `colcon-test-args` | empty | Extra arguments appended to `colcon test` |
@@ -93,10 +94,11 @@ with the public `ros:jazzy-ros-base`.
 ### What the job does
 
 1. Checks the repository out into `src/repo`.
-2. Runs `colcon build --packages-select <package>`, so nothing else in the workspace builds.
-3. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
-4. Parses the JUnit XML under `build/<package>` and writes a results table to the run summary, with a bullet per failing test naming the suite, the case, and the first line of the failure.
-5. Exits non-zero when any test fails, which fails the check.
+2. Logs into the registry when `ghcr-token` is set, then pulls the image and runs each colcon command in it with `docker run`.
+3. Runs `colcon build --packages-select <package>`, so nothing else in the workspace builds.
+4. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
+5. Parses the JUnit XML under `build/<package>` and writes a results table to the run summary, with a bullet per failing test naming the suite, the case, and the first line of the failure.
+6. Exits non-zero when any test fails, which fails the check.
 
 A package with no tests passes. The summary then reads `No tests found for
 <package>.` and the run carries a notice annotation saying the same.
