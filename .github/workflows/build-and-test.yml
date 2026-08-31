@@ -9,6 +9,13 @@ on:
           holds more than one package.
         type: string
         required: true
+      shared-workflows-ref:
+        description: >
+          Ref this workflow was called at, so its scripts are checked out from
+          the same commit. Set it to the ref after the @ in the uses: line. The
+          job fails when the two disagree.
+        type: string
+        required: true
       container-image:
         description: Container image holding the ROS 2 build environment
         type: string
@@ -78,101 +85,60 @@ jobs:
       BASE_PATHS: ${{ inputs.base-paths }}
       REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
       WORKER: ros-build-and-test
+      SCRIPTS: ${{ github.workspace }}/.shared-workflows/scripts/build-and-test
+      CALLER_PATH: src/repo
+      WORKFLOW_PATH: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml
+      SCRIPTS_REF: ${{ inputs.shared-workflows-ref }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v4
         with:
           path: src/repo
 
+      # A reusable workflow does not get its own repository on disk, so the
+      # scripts it runs are checked out here.
+      - name: Check out the workflow scripts
+        uses: actions/checkout@v4
+        with:
+          repository: launchpad-build/shared-workflows
+          ref: ${{ inputs.shared-workflows-ref }}
+          path: .shared-workflows
+          persist-credentials: false
+
+      - name: Confirm the scripts match the caller
+        run: "$SCRIPTS/verify-scripts-ref.sh"
+
       - name: Log in to the container registry
         if: env.REGISTRY_TOKEN != ''
         env:
           REGISTRY: ${{ inputs.registry }}
           REGISTRY_USER: ${{ github.actor }}
-        run: |
-          printf '%s' "$REGISTRY_TOKEN" \
-            | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+        run: "$SCRIPTS/registry-login.sh"
 
       - name: Pull the container image
-        run: docker pull "$IMAGE"
+        run: "$SCRIPTS/pull-image.sh"
 
-      # One long-lived container serves every later step. A package installed by
-      # rosdep lives only inside the running container, so a fresh docker run per
-      # step would throw those installs away before the build could use them.
       - name: Start the build container
-        run: |
-          docker run -d --name "$WORKER" \
-            -v "$GITHUB_WORKSPACE":/ws -w /ws \
-            -e PACKAGES -e ROS_DISTRO -e BASE_PATHS \
-            "$IMAGE" sleep infinity
+        run: "$SCRIPTS/start-container.sh"
 
       - name: Install the declared dependencies
         if: inputs.install-dependencies
-        run: |
-          docker exec "$WORKER" bash -c '
-            set -e
-            source "/opt/ros/$ROS_DISTRO/setup.bash"
-            apt-get update -qq
-            rosdep update -q --rosdistro "$ROS_DISTRO" 2>/dev/null \
-              || { rosdep init >/dev/null 2>&1; rosdep update -q --rosdistro "$ROS_DISTRO"; }
-            rosdep install --from-paths $BASE_PATHS --ignore-src -r -y \
-              --rosdistro "$ROS_DISTRO"
-          '
+        run: "$SCRIPTS/install-dependencies.sh"
 
-      # --packages-up-to, not --packages-select. A selected package that depends
-      # on a sibling in the same repository cannot configure unless that sibling
-      # is built first, and --packages-select refuses to build it.
       - name: Build the package
         id: build
         env:
           BUILD_ARGS: ${{ inputs.colcon-build-args }}
-        run: |
-          docker exec -e BUILD_ARGS "$WORKER" bash -c '
-            set -e
-            source "/opt/ros/$ROS_DISTRO/setup.bash"
-            colcon build \
-              --base-paths $BASE_PATHS \
-              --packages-up-to $PACKAGES \
-              --event-handlers console_direct+ \
-              $BUILD_ARGS
-          '
+        run: "$SCRIPTS/build-packages.sh"
 
       - name: Confirm every selected package built
-        run: |
-          missing=""
-          for package in $PACKAGES; do
-            if [ ! -d "build/$package" ]; then
-              missing="$missing $package"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::colcon found no package named:$missing. Check the package input and base-paths."
-            exit 1
-          fi
+        run: "$SCRIPTS/check-build-directories.sh"
 
-      # Only the selected packages are tested, so a sibling pulled in by
-      # --packages-up-to does not add its results to this repository's check.
       - name: Test the package
         id: test
         env:
           TEST_ARGS: ${{ inputs.colcon-test-args }}
-        run: |
-          set +e
-          docker exec -e TEST_ARGS "$WORKER" bash -c '
-            source "/opt/ros/$ROS_DISTRO/setup.bash"
-            colcon test \
-              --base-paths $BASE_PATHS \
-              --packages-select $PACKAGES \
-              --event-handlers console_cohesion+ \
-              --return-code-on-test-failure \
-              $TEST_ARGS
-            rc=$?
-            colcon test-result --all --verbose || true
-            exit $rc
-          '
-          rc=$?
-          set -e
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+        run: "$SCRIPTS/run-tests.sh"
 
       - name: Summarise the test results
         if: always()
@@ -180,146 +146,8 @@ jobs:
           TEST_RC: ${{ steps.test.outputs.rc }}
           TEST_OUTCOME: ${{ steps.test.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
-        run: |
-          sudo chown -R "$(id -u):$(id -g)" build log 2>/dev/null || true
-          python3 - <<'PY'
-          import glob
-          import os
-          import sys
-          import xml.etree.ElementTree as ET
-
-          MAX_LISTED_FAILURES = 20
-
-          packages = os.environ.get("PACKAGES", "").split()
-          test_rc = os.environ.get("TEST_RC") or ""
-          test_outcome = os.environ.get("TEST_OUTCOME") or "success"
-          build_outcome = os.environ.get("BUILD_OUTCOME") or "success"
-          summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
-
-
-          def result_files(package):
-              """Result XML colcon and ament write, and nothing else.
-
-              A recursive glob over the whole build directory also picks up
-              vendored fixtures and CTest's own Testing/*/Test.xml, so the search
-              is pinned to the two places results actually land.
-              """
-              paths = set(glob.glob(f"build/{package}/test_results/**/*.xml", recursive=True))
-              paths.update(glob.glob(f"build/{package}/*.xml"))
-              return paths
-
-
-          def case_label(suite, case):
-              """Name a case the way a reader would look for it in the log."""
-              owner = case.get("classname") or suite.get("name") or "suite"
-              return f"{owner}.{case.get('name') or 'case'}"
-
-
-          def read_package(package):
-              total = passed = failed = skipped = 0
-              failures = []
-              unreadable = []
-              for path in sorted(result_files(package)):
-                  try:
-                      root = ET.parse(path).getroot()
-                  except (ET.ParseError, OSError):
-                      # A test that dies mid-write leaves a truncated file and no
-                      # failing case, so an unreadable result is itself a failure.
-                      unreadable.append(path)
-                      continue
-                  for suite in root.iter("testsuite"):
-                      for case in suite.findall("testcase"):
-                          total += 1
-                          problems = case.findall("failure") + case.findall("error")
-                          if case.find("skipped") is not None:
-                              skipped += 1
-                          elif problems:
-                              failed += 1
-                              detail = problems[0].get("message") or (problems[0].text or "")
-                              detail = detail.strip()
-                              first_line = detail.splitlines()[0] if detail else "no detail reported"
-                              failures.append((f"{package}: {case_label(suite, case)}", first_line))
-                          else:
-                              passed += 1
-              return total, passed, failed, skipped, failures, unreadable
-
-
-          def write_failure_bullets(summary, failures):
-              summary.write("\n**Failing tests**\n\n")
-              for name, first_line in failures[:MAX_LISTED_FAILURES]:
-                  summary.write(f"- {name}: {first_line}\n")
-              remaining = len(failures) - MAX_LISTED_FAILURES
-              if remaining > 0:
-                  summary.write(f"- and {remaining} more, see the test step log\n")
-
-
-          def write_summary(rows, failures, unreadable):
-              with open(summary_path, "a", encoding="utf-8") as summary:
-                  summary.write("### Test results\n\n")
-                  if build_outcome != "success":
-                      summary.write("The build did not complete, so no tests ran.\n")
-                      return
-                  if test_outcome == "skipped":
-                      summary.write("The tests did not run. See the failed step in the job log.\n")
-                      return
-                  summary.write("| Package | Total | Passed | Failed | Skipped |\n")
-                  summary.write("| --- | --- | --- | --- | --- |\n")
-                  for package, total, passed, failed, skipped in rows:
-                      counts = f"{total} | {passed} | {failed} | {skipped}"
-                      if total == 0:
-                          counts = "no tests | - | - | -"
-                      summary.write(f"| {package} | {counts} |\n")
-                  if failures:
-                      write_failure_bullets(summary, failures)
-                  if unreadable:
-                      summary.write("\n**Unreadable result files**\n\n")
-                      for path in unreadable:
-                          summary.write(f"- {path}\n")
-
-
-          rows = []
-          all_failures = []
-          all_unreadable = []
-          for package in packages:
-              total, passed, failed, skipped, failures, unreadable = read_package(package)
-              rows.append((package, total, passed, failed, skipped))
-              all_failures.extend(failures)
-              all_unreadable.extend(unreadable)
-
-          write_summary(rows, all_failures, all_unreadable)
-
-          if build_outcome != "success":
-              print("::error::The build did not complete, so no tests ran.")
-              sys.exit(1)
-
-          if test_outcome == "skipped":
-              print("::error::The tests did not run. See the failed step in the job log.")
-              sys.exit(1)
-
-          for name, first_line in all_failures[:MAX_LISTED_FAILURES]:
-              print(f"::error::{name}: {first_line}")
-
-          if all_failures:
-              print(f"::error::{len(all_failures)} test(s) failed.")
-              sys.exit(1)
-
-          if all_unreadable:
-              for path in all_unreadable:
-                  print(f"::error::Result file could not be parsed: {path}")
-              sys.exit(1)
-
-          # A crash before any result file is written leaves no failing case to
-          # report, so the exit code is the only signal left. Check it whether or
-          # not tests were found.
-          if test_rc not in ("", "0"):
-              print(f"::error::colcon test exited {test_rc} without reporting a failing case.")
-              sys.exit(1)
-
-          no_test_packages = [row[0] for row in rows if row[1] == 0]
-          if no_test_packages:
-              print(f"::notice::No tests found for {', '.join(no_test_packages)}.")
-          PY
+        run: "$SCRIPTS/summarise-results.sh"
 
       - name: Stop the build container
         if: always()
-        run: docker rm -f "$WORKER" || true
+        run: "$SCRIPTS/stop-container.sh"

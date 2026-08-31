@@ -12,5 +12,6 @@ jobs:
     uses: ${SHARED_REPO}/.github/workflows/build-and-test.yml@${WORKFLOW_REF}
     with:
       package: ${PACKAGE}
+      shared-workflows-ref: ${WORKFLOW_REF}
     secrets:
       ghcr-token: ${{ secrets.GHCR_READ_TOKEN }}

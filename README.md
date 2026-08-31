@@ -71,6 +71,7 @@ jobs:
     uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
     with:
       package: my_package
+      shared-workflows-ref: latest
     secrets:
       ghcr-token: ${{ secrets.GHCR_READ_TOKEN }}
 ```
@@ -88,6 +89,7 @@ with the public `ros:jazzy-ros-base`.
 | Input | Default | Description |
 |-------|---------|-------------|
 | `package` | required | Package to build and test. Space-separated for several packages in one repository. |
+| `shared-workflows-ref` | required | Ref this workflow is called at, repeated so its scripts come from the same commit. |
 | `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
 | `base-paths` | `src` | Paths colcon crawls for packages. Space-separated for several roots. |
 | `registry` | `ghcr.io` | Registry logged into before the image is pulled |
@@ -99,18 +101,66 @@ with the public `ros:jazzy-ros-base`.
 ### What the job does
 
 1. Checks the repository out into `src/repo`.
-2. Logs into the registry when `ghcr-token` is set, then pulls the image.
-3. Starts one long-lived container and runs every later step in it with `docker exec`.
-4. Runs `rosdep install` over the crawled packages, unless `install-dependencies` is false.
-5. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
-6. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
-7. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
-8. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
-9. Exits non-zero when any test fails, which fails the check.
+2. Checks `shared-workflows` out into `.shared-workflows` at `shared-workflows-ref`,
+   so its scripts are on disk, and fails when that ref disagrees with the caller.
+3. Logs into the registry when `ghcr-token` is set, then pulls the image.
+4. Starts one long-lived container and runs every later step in it with `docker exec`.
+5. Runs `rosdep install` over the crawled packages, unless `install-dependencies` is false.
+6. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
+7. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
+8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
+9. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
+10. Exits non-zero when any test fails, which fails the check.
 
 ### Why the job is shaped this way
 
 Each choice below answers a failure seen on a real run, not a preference.
+
+**Every step is a script file, not inlined YAML.** Each step is an `env` block and
+one call to a script under `scripts/build-and-test`. Data reaches a script through
+the environment, so no workflow input is ever interpolated into a command line.
+
+| Script | Step |
+|--------|------|
+| `registry-login.sh` | Log in to the container registry |
+| `pull-image.sh` | Pull the container image |
+| `start-container.sh` | Start the build container |
+| `install-dependencies.sh` | Install the declared dependencies |
+| `build-packages.sh` | Build the package |
+| `check-build-directories.sh` | Confirm every selected package built |
+| `run-tests.sh` | Test the package |
+| `summarise-results.sh`, `summarise_test_results.py` | Summarise the test results |
+| `stop-container.sh` | Stop the build container |
+
+`summarise_test_results.py` is an importable module. `tests/test_summarise_test_results.py`
+covers the recorded edge cases: no test cases, a truncated result file, a skipped
+test, a skipped test step, a mixed run, the capped bullet list and a named failing
+case. Run it with `python3 -m unittest discover -s tests`.
+
+**The scripts are checked out, not turned into a composite action.** A reusable
+workflow never gets its own repository on disk, so a script file in
+`shared-workflows` is absent when the callee runs. A second `actions/checkout` of
+`launchpad-build/shared-workflows` puts them there.
+
+A composite action gets its own files for free through `GITHUB_ACTION_PATH`, but
+`uses:` takes no expression, so the workflow would have to name one fixed ref.
+That ref either floats and lets the scripts drift from the workflow, or is a tag
+that has to be bumped by hand after every change, and a branch under review would
+run the wrong scripts. A composite action also cannot reproduce this job: a failed
+step aborts the action, so the `if: always()` summary and container teardown would
+not run, and the summary reads `steps.build.outcome` and `steps.test.outcome`,
+which a composite action does not expose.
+
+**The caller states the ref, and the job checks it.** Nothing inside a reusable
+workflow names its own ref. `github.job_workflow_sha` and
+`github.job_workflow_ref` are OIDC claims, and a probe run confirmed both
+evaluate to the empty string in a callee's steps, which silently sends
+`actions/checkout` to the default branch. A script cannot resolve the ref either,
+because that script is not on disk yet. So the caller repeats the ref as
+`shared-workflows-ref`, and the first step after the checkout compares it against
+the caller's own `uses:` line and fails the job when they differ. The scripts are
+therefore always pinned, and a drifting pin is a loud failure rather than a quiet
+one.
 
 **One container, not one `docker run` per step.** `rosdep install` writes into the
 running container's filesystem. A fresh container per step throws those packages
