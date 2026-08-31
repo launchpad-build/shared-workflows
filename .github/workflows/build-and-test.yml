@@ -280,13 +280,11 @@ jobs:
           rows = []
           all_failures = []
           all_unreadable = []
-          grand_total = 0
           for package in packages:
               total, passed, failed, skipped, failures, unreadable = read_package(package)
               rows.append((package, total, passed, failed, skipped))
               all_failures.extend(failures)
               all_unreadable.extend(unreadable)
-              grand_total += total
 
           write_summary(rows, all_failures, all_unreadable)
 
@@ -317,9 +315,9 @@ jobs:
               print(f"::error::colcon test exited {test_rc} without reporting a failing case.")
               sys.exit(1)
 
-          if grand_total == 0:
-              label = ", ".join(packages) if packages else "the selected packages"
-              print(f"::notice::No tests found for {label}.")
+          no_test_packages = [row[0] for row in rows if row[1] == 0]
+          if no_test_packages:
+              print(f"::notice::No tests found for {', '.join(no_test_packages)}.")
           PY
 
       - name: Stop the build container
