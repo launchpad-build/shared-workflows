@@ -68,11 +68,14 @@ jobs:
     uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
     with:
       package: my_package
-    secrets: inherit
+    secrets:
+      ghcr-token: ${{ secrets.GHCR_READ_TOKEN }}
 ```
 
-`secrets: inherit` passes the organisation `GHCR_READ_TOKEN` through as the
-`ghcr-token` secret, which the job uses to pull the container image.
+The job pulls the container image with `ghcr-token`. `secrets: inherit` does not
+cover it, because inheritance matches on name and the organisation secret is
+called `GHCR_READ_TOKEN`, so pass it through explicitly. Omit the secret and the
+job falls back to its own `GITHUB_TOKEN`.
 
 | Input | Default | Description |
 |-------|---------|-------------|

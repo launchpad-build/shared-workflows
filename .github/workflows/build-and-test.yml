@@ -31,8 +31,10 @@ on:
         default: ""
     secrets:
       ghcr-token:
-        description: Token used to pull the container image from ghcr.io
-        required: true
+        description: >
+          Token used to pull the container image from ghcr.io. Falls back to the
+          job's own GITHUB_TOKEN when the caller passes nothing.
+        required: false
 
 concurrency:
   group: build-and-test-${{ github.repository }}-${{ github.ref }}
@@ -46,7 +48,7 @@ jobs:
       image: ${{ inputs.container-image }}
       credentials:
         username: ${{ github.actor }}
-        password: ${{ secrets.ghcr-token }}
+        password: ${{ secrets.ghcr-token || github.token }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v4
