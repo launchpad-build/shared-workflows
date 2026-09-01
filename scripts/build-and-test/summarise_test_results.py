@@ -40,6 +40,24 @@ class PackageResult:
     unreadable: list[str] = field(default_factory=list)
 
 
+def selected_packages(env: Mapping[str, str]) -> list[str]:
+    """Packages this run covers, from the resolved list or from the input.
+
+    The resolve step writes one package per line, so the summariser reports the
+    same set the build and the test steps worked over, whether the caller named
+    the packages or left colcon to crawl for them.
+    """
+    result = env.get("PACKAGES", "").split()
+    path = env.get("PACKAGE_LIST") or ""
+    if path:
+        try:
+            with open(path, encoding="utf-8") as listing:
+                result = listing.read().split()
+        except OSError:
+            result = env.get("PACKAGES", "").split()
+    return result
+
+
 def result_files(package: str, build_root: str = "build") -> set[str]:
     """Result XML colcon and ament write, and nothing else.
 
@@ -213,6 +231,8 @@ def build_summary(
         lines.append("The build did not complete, so no tests ran.")
     elif test_outcome == "skipped":
         lines.append("The tests did not run. See the failed step in the job log.")
+    elif not results:
+        lines.append("No package was resolved, so the run tested nothing.")
     else:
         lines.extend(results_table(results))
         failures = collect_failures(results)
@@ -304,6 +324,14 @@ def build_annotations(
             ["::error::The tests did not run. See the failed step in the job log."],
             1,
         )
+    elif not results:
+        # No package to report on means the table is empty and every per-package
+        # check has nothing to check, so a broken crawl would read as a clean
+        # run. The resolve step fails first, and this is the backstop.
+        outcome = (
+            ["::error::No package was resolved, so the run tested nothing."],
+            1,
+        )
     elif problems:
         outcome = (problems, 1)
     elif test_rc not in ("", "0") and not excused_exit_code(test_rc, results, codes):
@@ -328,7 +356,7 @@ def build_annotations(
 def main(environ: Mapping[str, str] | None = None) -> int:
     """Read the results named by the environment and report on them."""
     env = os.environ if environ is None else environ
-    packages = env.get("PACKAGES", "").split()
+    packages = selected_packages(env)
     build_root = env.get("BUILD_ROOT") or "build"
     build_outcome = env.get("BUILD_OUTCOME") or "success"
     test_outcome = env.get("TEST_OUTCOME") or "success"

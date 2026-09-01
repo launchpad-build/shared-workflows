@@ -260,5 +260,71 @@ class SummariserTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class PackageListTestCase(unittest.TestCase):
+    """Drives the summariser from the resolved package list file."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.build_root = Path(self.tmp.name) / "build"
+        self.list_path = Path(self.tmp.name) / "packages"
+
+    def write_result(self, package, name, body):
+        """Place one result file where colcon and ament write them."""
+        target = self.build_root / package / "test_results" / package / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+    def summarise(self, **env):
+        """Run main with the list file as the only source of packages."""
+        summary_path = Path(self.tmp.name) / "summary.md"
+        environ = {
+            "BUILD_ROOT": str(self.build_root),
+            "GITHUB_STEP_SUMMARY": str(summary_path),
+            "LOG_ROOT": str(Path(self.tmp.name) / "log"),
+            "PACKAGE_LIST": str(self.list_path),
+        }
+        environ.update(env)
+        code = summariser.main(environ)
+        text = summary_path.read_text(encoding="utf-8") if summary_path.exists() else ""
+        return text, code
+
+    def test_the_crawled_packages_are_read_from_the_list_file(self):
+        self.list_path.write_text("crawled_one\ncrawled_two\n", encoding="utf-8")
+        self.write_result("crawled_one", "pass.xml", PASSING_SUITE)
+        self.write_result("crawled_two", "empty.xml", EMPTY_SUITE)
+        text, code = self.summarise()
+        self.assertEqual(code, 0)
+        self.assertIn("| crawled_one | 1 | 1 | 0 | 0 |", text)
+        self.assertIn("| crawled_two | no tests | - | - | - |", text)
+
+    def test_a_failing_case_in_a_crawled_package_still_reddens(self):
+        self.list_path.write_text("crawled_one\n", encoding="utf-8")
+        self.write_result("crawled_one", "fail.xml", FAILING_SUITE)
+        text, code = self.summarise()
+        self.assertEqual(code, 1)
+        self.assertIn("crawled_one: demo_pkg.AdderTest.addsZero", text)
+
+    def test_an_empty_list_file_fails_rather_than_reporting_nothing(self):
+        self.list_path.write_text("", encoding="utf-8")
+        text, code = self.summarise()
+        self.assertEqual(code, 1)
+        self.assertIn("No package was resolved", text)
+
+    def test_a_missing_list_file_falls_back_to_the_package_input(self):
+        self.write_result("demo_pkg", "pass.xml", PASSING_SUITE)
+        text, code = self.summarise(PACKAGES="demo_pkg")
+        self.assertEqual(code, 0)
+        self.assertIn("| demo_pkg | 1 | 1 | 0 | 0 |", text)
+
+    def test_the_list_file_wins_over_the_package_input(self):
+        self.list_path.write_text("crawled_one\n", encoding="utf-8")
+        self.write_result("crawled_one", "pass.xml", PASSING_SUITE)
+        text, code = self.summarise(PACKAGES="demo_pkg")
+        self.assertEqual(code, 0)
+        self.assertIn("| crawled_one |", text)
+        self.assertNotIn("| demo_pkg |", text)
+
+
 if __name__ == "__main__":
     unittest.main()
