@@ -19,3 +19,4 @@ docker exec -e TEST_ARGS "$WORKER" bash -c '
 '
 rc=$?
 echo "rc=$rc" >> "$GITHUB_OUTPUT"
+exit "$rc"
