@@ -30,7 +30,7 @@ jobs:
       container-image: ros:jazzy-ros-base
       base-paths: src/repo/probe/packages
 
-  ctest-failure-names-the-package:
+  ctest-failure-still-reddens:
     uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
     with:
       package: probe_ctest_nocase_pkg
@@ -44,3 +44,17 @@ jobs:
       container-image: ros:jazzy-ros-base
       base-paths: src/repo/probe/packages
       colcon-test-args: --ctest-args -R nothing
+
+  setuppy-failure-names-the-package:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_py_setuppy_fail_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
+
+  uncollectable-package-reddens:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_py_broken_conftest_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
