@@ -12,6 +12,10 @@
 # colcon list falls back to BASE_PATHS when it cannot resolve the selection, so
 # a mistyped package name still fails at the build step with colcon's own
 # message rather than here.
+#
+# With no selection the closure is the whole crawl, so the same query runs
+# without --packages-up-to. That still asks colcon rather than handing rosdep
+# the base paths, so rosdep sees only what colcon crawled.
 set -euo pipefail
 
 docker exec "$WORKER" bash -c '
@@ -22,7 +26,11 @@ docker exec "$WORKER" bash -c '
     || rosdep update -q --rosdistro "$ROS_DISTRO" 2>/dev/null \
     || { rosdep init >/dev/null; rosdep update -q --rosdistro "$ROS_DISTRO"; }
 
-  paths="$(colcon list --base-paths $BASE_PATHS --packages-up-to $PACKAGES \
+  selection=()
+  if [ -n "$PACKAGES" ]; then
+    selection=(--packages-up-to $PACKAGES)
+  fi
+  paths="$(colcon list --base-paths $BASE_PATHS "${selection[@]}" \
     --paths-only 2>/dev/null || true)"
   if [ -z "$paths" ]; then
     echo "colcon could not resolve the selection, so rosdep falls back to the base paths."

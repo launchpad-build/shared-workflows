@@ -2,7 +2,9 @@
 # Reads WORKER, RUN_LINTERS, TEST_ARGS and GITHUB_OUTPUT from the environment.
 #
 # Only the selected packages are tested, so a sibling pulled in by
-# --packages-up-to does not add its results to this repository's check.
+# --packages-up-to does not add its results to this repository's check. With no
+# selection there is no sibling to hold back, so the flag is left off and colcon
+# tests everything it crawled.
 #
 # The ament linters are excluded unless run-linters is true, and the two build
 # types need different mechanisms. An ament_cmake package registers each linter
@@ -32,9 +34,13 @@ fi
 
 docker exec -e TEST_ARGS "$WORKER" bash -c '
   source "/opt/ros/$ROS_DISTRO/setup.bash"
+  selection=()
+  if [ -n "$PACKAGES" ]; then
+    selection=(--packages-select $PACKAGES)
+  fi
   colcon test \
     --base-paths $BASE_PATHS \
-    --packages-select $PACKAGES \
+    "${selection[@]}" \
     --event-handlers console_cohesion+ \
     --return-code-on-test-failure \
     $TEST_ARGS "$@"
