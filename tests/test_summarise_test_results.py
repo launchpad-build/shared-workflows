@@ -51,12 +51,24 @@ class SummariserTestCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.build_root = Path(self.tmp.name) / "build"
+        self.log_root = Path(self.tmp.name) / "log"
 
     def write_result(self, package, name, body):
         """Place one result file where colcon and ament write them."""
         target = self.build_root / package / "test_results" / package / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding="utf-8")
+
+    def write_events(self, codes):
+        """Write the per-package status colcon records for a test run."""
+        target = self.log_root / "latest_test" / "events.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            f"[0.1] ({package}) JobEnded: "
+            + "{'identifier': '%s', 'rc': %d}" % (package, code)
+            for package, code in codes.items()
+        ]
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def summarise(self, packages, **env):
         """Run main over the temp build tree and hand back summary and code."""
@@ -65,6 +77,7 @@ class SummariserTestCase(unittest.TestCase):
             "PACKAGES": " ".join(packages),
             "BUILD_ROOT": str(self.build_root),
             "GITHUB_STEP_SUMMARY": str(summary_path),
+            "LOG_ROOT": str(self.log_root),
         }
         environ.update(env)
         code = summariser.main(environ)
@@ -189,6 +202,50 @@ class SummariserTestCase(unittest.TestCase):
         self.write_result("demo_pkg", "passing.xml", PASSING_SUITE)
         _, code = self.summarise(["demo_pkg"])
         self.assertEqual(code, 0)
+
+    def test_the_per_package_status_is_read_from_the_colcon_event_log(self):
+        self.write_events({"demo_pkg": 0, "other_pkg": 5})
+        codes = summariser.package_exit_codes(str(self.log_root))
+        self.assertEqual(codes, {"demo_pkg": 0, "other_pkg": 5})
+
+    def test_a_missing_event_log_gives_no_per_package_status(self):
+        self.assertEqual(summariser.package_exit_codes(str(self.log_root)), {})
+
+    def test_a_failing_package_with_no_case_is_named(self):
+        self.write_result("demo_pkg", "passing.xml", PASSING_SUITE)
+        self.write_events({"demo_pkg": 134})
+        text, code = self.summarise(["demo_pkg"], TEST_RC="134")
+        self.assertEqual(code, 1)
+        self.assertIn("demo_pkg: exit code 134", text)
+        results = [summariser.read_package("demo_pkg", str(self.build_root))]
+        annotations, _ = summariser.build_annotations(
+            results, "success", "success", "134", {"demo_pkg": 134}
+        )
+        self.assertIn(
+            "::error::colcon test exited 134 for demo_pkg without reporting a "
+            "failing case.",
+            annotations,
+        )
+
+    def test_a_package_left_with_no_test_to_collect_passes(self):
+        self.write_result("demo_pkg", "empty.xml", EMPTY_SUITE)
+        self.write_events({"demo_pkg": 5})
+        text, code = self.summarise(["demo_pkg"], TEST_RC="5")
+        self.assertEqual(code, 0)
+        self.assertIn("| demo_pkg | no tests |", text)
+
+    def test_one_package_collecting_nothing_does_not_excuse_another_failure(self):
+        self.write_result("demo_pkg", "empty.xml", EMPTY_SUITE)
+        self.write_result("other_pkg", "passing.xml", PASSING_SUITE)
+        self.write_events({"demo_pkg": 5, "other_pkg": 5})
+        _, code = self.summarise(["demo_pkg", "other_pkg"], TEST_RC="5")
+        self.assertEqual(code, 1)
+
+    def test_an_unreadable_result_file_is_never_excused_by_the_exit_code(self):
+        self.write_result("demo_pkg", "broken.xml", TRUNCATED)
+        self.write_events({"demo_pkg": 5})
+        _, code = self.summarise(["demo_pkg"], TEST_RC="5")
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

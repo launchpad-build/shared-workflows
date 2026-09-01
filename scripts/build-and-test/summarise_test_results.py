@@ -8,6 +8,7 @@ beyond reading the result files.
 
 import glob
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
@@ -15,6 +16,15 @@ from itertools import chain, zip_longest
 from dataclasses import dataclass, field
 
 MAX_LISTED_FAILURES = 20
+
+# pytest and setuptools both use this code for a run that collected no test.
+# colcon already treats it as success on its pytest path and not on its
+# setup.py path, so a package with nothing left to run can still fail the job.
+NO_TESTS_COLLECTED = 5
+
+JOB_ENDED = re.compile(
+    r"JobEnded: \{'identifier': '(?P<package>[^']+)', 'rc': (?P<code>-?\d+)\}"
+)
 
 
 @dataclass
@@ -88,6 +98,63 @@ def read_package(package: str, build_root: str = "build") -> PackageResult:
     return result
 
 
+def package_exit_codes(log_root: str = "log") -> dict[str, int]:
+    """Exit code colcon recorded for each package in the last test run.
+
+    colcon's own event log is the only per-package status the job has. The
+    aggregate exit code of ``colcon test`` names nothing, so a package that
+    failed without writing a failing case could only be reported as a bare
+    number.
+    """
+    codes: dict[str, int] = {}
+    try:
+        with open(
+            f"{log_root}/latest_test/events.log", encoding="utf-8", errors="replace"
+        ) as events:
+            for line in events:
+                match = JOB_ENDED.search(line)
+                if match is not None:
+                    codes[match.group("package")] = int(match.group("code"))
+    except OSError:
+        codes = {}
+    return codes
+
+
+def collected_nothing(result: PackageResult, code: int) -> bool:
+    """Whether a package failed only because it had no test left to run."""
+    return (
+        code == NO_TESTS_COLLECTED
+        and result.total == 0
+        and not result.unreadable
+    )
+
+
+def unexplained_failures(
+    results: Sequence[PackageResult], exit_codes: Mapping[str, int]
+) -> list[tuple[str, int]]:
+    """Packages colcon failed that reported nothing to explain the failure.
+
+    A package whose tests all failed, or whose result file could not be read,
+    is already reported. A package left with no test to collect is not a
+    failure: excluding the linters empties the suite of any package that only
+    ever ran linters, and colcon already treats that code as success on its
+    pytest path.
+    """
+    by_name = {result.name: result for result in results}
+    unexplained = []
+    for package, code in sorted(exit_codes.items()):
+        result = by_name.get(package)
+        if code == 0:
+            continue
+        if result is None:
+            unexplained.append((package, code))
+        elif result.failed or result.unreadable:
+            continue
+        elif not collected_nothing(result, code):
+            unexplained.append((package, code))
+    return unexplained
+
+
 def collect_failures(results: Sequence[PackageResult]) -> list[tuple[str, str]]:
     """Every failing case, taken a package at a time in turn.
 
@@ -135,7 +202,10 @@ def unreadable_bullets(unreadable: Sequence[str]) -> list[str]:
 
 
 def build_summary(
-    results: Sequence[PackageResult], build_outcome: str, test_outcome: str
+    results: Sequence[PackageResult],
+    build_outcome: str,
+    test_outcome: str,
+    exit_codes: Mapping[str, int] | None = None,
 ) -> str:
     """Markdown written to the step summary for this run."""
     lines = ["### Test results", ""]
@@ -147,10 +217,13 @@ def build_summary(
         lines.extend(results_table(results))
         failures = collect_failures(results)
         unreadable = [path for result in results for path in result.unreadable]
+        unexplained = unexplained_failures(results, exit_codes or {})
         if failures:
             lines.extend(failure_bullets(failures))
         if unreadable:
             lines.extend(unreadable_bullets(unreadable))
+        if unexplained:
+            lines.extend(unexplained_bullets(unexplained))
     return "\n".join(lines) + "\n"
 
 
@@ -172,16 +245,39 @@ def unreadable_annotations(unreadable: Sequence[str]) -> list[str]:
     ]
 
 
+def unexplained_annotations(unexplained: Sequence[tuple[str, int]]) -> list[str]:
+    """Annotation lines naming each package colcon failed without a case."""
+    return [
+        f"::error::colcon test exited {code} for {package} without reporting a "
+        "failing case."
+        for package, code in unexplained
+    ]
+
+
+def unexplained_bullets(unexplained: Sequence[tuple[str, int]]) -> list[str]:
+    """Bullet list of packages colcon failed without a failing case."""
+    lines = ["", "**Packages colcon failed with no failing case**", ""]
+    lines.extend(f"- {package}: exit code {code}" for package, code in unexplained)
+    return lines
+
+
 def build_annotations(
     results: Sequence[PackageResult],
     build_outcome: str,
     test_outcome: str,
     test_rc: str,
+    exit_codes: Mapping[str, int] | None = None,
 ) -> tuple[list[str], int]:
     """Annotation lines and the exit code the job should end on."""
+    codes = exit_codes or {}
     failures = collect_failures(results)
     unreadable = [path for result in results for path in result.unreadable]
-    problems = failure_annotations(failures) + unreadable_annotations(unreadable)
+    unexplained = unexplained_failures(results, codes)
+    problems = (
+        failure_annotations(failures)
+        + unreadable_annotations(unreadable)
+        + unexplained_annotations(unexplained)
+    )
     if build_outcome != "success":
         outcome = (["::error::The build did not complete, so no tests ran."], 1)
     elif test_outcome == "skipped":
@@ -191,10 +287,12 @@ def build_annotations(
         )
     elif problems:
         outcome = (problems, 1)
-    elif test_rc not in ("", "0"):
+    elif not codes and test_rc not in ("", "0"):
         # A crash before any result file is written leaves no failing case to
         # report, so the exit code is the only signal left. Check it whether or
-        # not tests were found.
+        # not tests were found. Once colcon's per-package log is readable the
+        # named packages above carry this instead, so the aggregate code is only
+        # the fallback for a run that never got as far as an event log.
         outcome = (
             [
                 f"::error::colcon test exited {test_rc} without reporting a failing case."
@@ -217,14 +315,18 @@ def main(environ: Mapping[str, str] | None = None) -> int:
     test_outcome = env.get("TEST_OUTCOME") or "success"
     test_rc = env.get("TEST_RC") or ""
     summary_path = env.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+    log_root = env.get("LOG_ROOT") or "log"
 
     results = [read_package(package, build_root) for package in packages]
+    exit_codes = package_exit_codes(log_root)
 
     with open(summary_path, "a", encoding="utf-8") as summary:
-        summary.write(build_summary(results, build_outcome, test_outcome))
+        summary.write(
+            build_summary(results, build_outcome, test_outcome, exit_codes)
+        )
 
     annotations, code = build_annotations(
-        results, build_outcome, test_outcome, test_rc
+        results, build_outcome, test_outcome, test_rc, exit_codes
     )
     for line in annotations:
         print(line)
