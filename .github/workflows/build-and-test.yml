@@ -47,13 +47,26 @@ on:
         type: boolean
         required: false
         default: true
+      run-linters:
+        description: >
+          Run the ament style and lint tests. They are off by default: the house
+          style disagrees with several of them, so a repository that has never
+          run them reddens the check on style debt rather than on a real
+          failure. Set it to true once a repository is clean and wants CI to
+          enforce style.
+        type: boolean
+        required: false
+        default: false
       colcon-build-args:
         description: Extra arguments appended to colcon build
         type: string
         required: false
         default: ""
       colcon-test-args:
-        description: Extra arguments appended to colcon test
+        description: >
+          Extra arguments appended to colcon test. The linter exclusion is
+          appended after them, so a value carrying its own --ctest-args or
+          --pytest-args loses that group to the exclusion and the step says so.
         type: string
         required: false
         default: ""
@@ -139,6 +152,7 @@ jobs:
         id: test
         env:
           TEST_ARGS: ${{ inputs.colcon-test-args }}
+          RUN_LINTERS: ${{ inputs.run-linters }}
         run: "$SCRIPTS/run-tests.sh"
 
       - name: Summarise the test results

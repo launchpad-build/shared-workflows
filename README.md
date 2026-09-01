@@ -105,8 +105,9 @@ another user, so naming it there would only mislead.
 | `registry` | `ghcr.io` | Registry logged into before the image is pulled |
 | `ros-distro` | `jazzy` | Distribution sourced before the build |
 | `install-dependencies` | `true` | Run `rosdep install` over the closure the build will cover, before building |
+| `run-linters` | `false` | Run the ament style and lint tests. Off by default, see below. |
 | `colcon-build-args` | empty | Extra arguments appended to `colcon build` |
-| `colcon-test-args` | empty | Extra arguments appended to `colcon test` |
+| `colcon-test-args` | empty | Extra arguments appended to `colcon test`, before the linter exclusion |
 | `timeout-minutes` | `60` | Minutes the job may run before it is cancelled |
 
 ### What the job does
@@ -119,7 +120,7 @@ another user, so naming it there would only mislead.
 5. Runs `rosdep install` over the closure `--packages-up-to` will build, unless `install-dependencies` is false.
 6. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
 7. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
-8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
+8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, excluding the ament linters unless `run-linters` is true, then `colcon test-result --all --verbose`.
 9. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
 10. Exits non-zero when any test fails, which fails the check.
 
@@ -258,8 +259,65 @@ alone, and the single genuine unit-test failures in `digitool_health_monitor` an
 `digitool_bist` appeared nowhere in the summary or the annotations. Interleaving
 puts all six failing packages inside the same twenty bullets.
 
+**The ament style and lint tests do not run.** `run-linters` defaults to false, so
+this check tests behaviour and says nothing about style. The reason is measured,
+not a preference. Over fifteen packages of a real product workspace the linters
+the packages themselves declare raised 148 failures out of 313 cases, and only
+two of those were unit tests. Almost all of the rest were `copyright` and
+`cpplint`'s `legal/copyright`, which demand a header the house C++ style forbids,
+plus `uncrustify` diffs and `flake8` docstring rules. None of these repositories
+has ever run a test workflow, so turning the check on with linters enabled would
+redden every repository in the estate on debt that predates it.
+
+The consequence is worth stating plainly: **nothing in CI enforces style while
+this input is false**. A repository that has cleared its linter debt, or that has
+dropped `ament_lint_auto` where the house style deliberately disagrees, opts back
+in from its own caller:
+
+```yaml
+    with:
+      package: my_package
+      run-linters: true
+```
+
+Excluding them takes two mechanisms, because the two build types run linters
+differently. An `ament_cmake` package registers each linter as a CTest test
+carrying the `linter` label, so `--ctest-args -LE linter` drops them. An
+`ament_python` package runs its linters as pytest tests instead, which carry no
+CTest label, so `-LE linter` does nothing there. Those tests do carry the pytest
+marker `linter`, registered by `ament_lint`, so `--pytest-args -m "not linter"`
+is the exact counterpart. An `ament_cmake_python` package registers its Python
+linters through CMake, so the CTest label covers it. Over the same fifteen
+packages the pair took the run from 313 cases and 148 failures to 96 cases and
+one failure, and that one is a genuine unit-test bug.
+
+The exclusion is appended after `colcon-test-args`, so a caller can never drop it
+by accident. colcon lets a later `--ctest-args` or `--pytest-args` replace an
+earlier one, so a caller passing its own group loses that group to the exclusion.
+The step raises a warning annotation naming the collision rather than swallowing
+it. To keep both, set `run-linters` to true and put the exclusion in your own
+arguments.
+
 A package with no tests passes. Its row reads `no tests` and the run carries a
-notice annotation naming the packages that had none.
+notice annotation naming the packages that had none. Excluding the linters makes
+that common: four of the fifteen product packages had nothing but linter tests,
+and their rows now read `no tests`.
+
+**A package colcon failed is named.** The exit code of `colcon test` covers the
+whole run, so a package that failed without writing a failing case could only be
+reported as a bare number. The summary step now reads the per-package status out
+of colcon's own event log, `log/latest_test/events.log`, and names each package
+whose job failed with nothing to explain it. The aggregate code stays as the
+fallback for a run that never got as far as an event log.
+
+That per-package status is also what stops an emptied suite reddening the check.
+A package left with no test to collect exits 5, which is pytest's code for
+collecting nothing. colcon already treats it as success on its own pytest path
+but not on its `setup.py test` path, so `digitool_mock` failed the job while
+reporting no test at all. A package is now excused only when all three hold: the
+code is that one, the package reported zero cases, and every result file it wrote
+was readable. Any other non-zero code, an unreadable file, or a failing case
+still fails the job, and now says which package.
 
 ### Blocking the pull request
 
