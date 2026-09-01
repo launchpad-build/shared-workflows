@@ -245,6 +245,25 @@ def unreadable_annotations(unreadable: Sequence[str]) -> list[str]:
     ]
 
 
+def excused_exit_code(
+    test_rc: str, results: Sequence[PackageResult], exit_codes: Mapping[str, int]
+) -> bool:
+    """Whether the run's exit code is only there because a suite was empty.
+
+    colcon returns the code of a failing package job, so a package left with no
+    test to collect carries its code out to the whole run. Excusing it needs
+    that code and at least one package whose suite really was empty. Any other
+    code, and any package that failed with something to report, is unexplained
+    and fails the job before this is reached.
+    """
+    empty = [
+        result
+        for result in results
+        if collected_nothing(result, exit_codes.get(result.name, 0))
+    ]
+    return test_rc == str(NO_TESTS_COLLECTED) and bool(empty)
+
+
 def unexplained_annotations(unexplained: Sequence[tuple[str, int]]) -> list[str]:
     """Annotation lines naming each package colcon failed without a case."""
     return [
@@ -287,12 +306,12 @@ def build_annotations(
         )
     elif problems:
         outcome = (problems, 1)
-    elif not codes and test_rc not in ("", "0"):
+    elif test_rc not in ("", "0") and not excused_exit_code(test_rc, results, codes):
         # A crash before any result file is written leaves no failing case to
         # report, so the exit code is the only signal left. Check it whether or
-        # not tests were found. Once colcon's per-package log is readable the
-        # named packages above carry this instead, so the aggregate code is only
-        # the fallback for a run that never got as far as an event log.
+        # not tests were found. colcon's per-package status does not replace this
+        # check: its CTest task reports a package as passing even when a test in
+        # it failed, so the aggregate code is sometimes the only non-zero signal.
         outcome = (
             [
                 f"::error::colcon test exited {test_rc} without reporting a failing case."
