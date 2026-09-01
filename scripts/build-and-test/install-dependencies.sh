@@ -8,7 +8,7 @@ docker exec "$WORKER" bash -c '
   source "/opt/ros/$ROS_DISTRO/setup.bash"
   apt-get update -qq
   rosdep update -q --rosdistro "$ROS_DISTRO" 2>/dev/null \
-    || { rosdep init >/dev/null 2>&1; rosdep update -q --rosdistro "$ROS_DISTRO"; }
+    || { rosdep init >/dev/null; rosdep update -q --rosdistro "$ROS_DISTRO"; }
   rosdep install --from-paths $BASE_PATHS --ignore-src -r -y \
     --rosdistro "$ROS_DISTRO"
 '
