@@ -104,7 +104,7 @@ another user, so naming it there would only mislead.
 | `base-paths` | `src` | Paths colcon crawls for packages. Space-separated for several roots. |
 | `registry` | `ghcr.io` | Registry logged into before the image is pulled |
 | `ros-distro` | `jazzy` | Distribution sourced before the build |
-| `install-dependencies` | `true` | Run `rosdep install` over the crawled packages before building |
+| `install-dependencies` | `true` | Run `rosdep install` over the closure the build will cover, before building |
 | `colcon-build-args` | empty | Extra arguments appended to `colcon build` |
 | `colcon-test-args` | empty | Extra arguments appended to `colcon test` |
 | `timeout-minutes` | `60` | Minutes the job may run before it is cancelled |
@@ -116,7 +116,7 @@ another user, so naming it there would only mislead.
    so its scripts are on disk, and fails when that ref disagrees with the caller.
 3. Logs into the registry when `ghcr-token` is set, then pulls the image.
 4. Starts one long-lived container and runs every later step in it with `docker exec`.
-5. Runs `rosdep install` over the crawled packages, unless `install-dependencies` is false.
+5. Runs `rosdep install` over the closure `--packages-up-to` will build, unless `install-dependencies` is false.
 6. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
 7. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
 8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, then `colcon test-result --all --verbose`.
@@ -202,6 +202,19 @@ started once and removed at the end.
 not carry. `digitool_ros2_perception` declares `python3-pytest-cov`, which
 `ros:jazzy-ros-base` lacks. Set `install-dependencies` to false for an image that
 already carries the full dependency set and you save about ten seconds.
+
+**rosdep is scoped to the build closure, not to the base paths.** The step asks
+colcon which packages `--packages-up-to` will build and gives rosdep those paths,
+because a real repository declares dependencies the selected packages never need.
+Over the 44 product packages, crawling the base paths dragged in the whole moveit
+and plansys2 set for packages the build never touched, and it failed outright on
+`behaviortree_ros2`, a source-only fork with no rosdistro entry, declared by two
+packages that were not selected. Scoping to the closure cut the step from a
+two-minute failure to a clean six seconds installing the two keys the build
+actually wanted, `nlohmann-json3-dev` and `python3-pytest-cov`. When colcon
+cannot resolve the selection the
+step falls back to the base paths, so a mistyped package name still fails at the
+build step with colcon's own message.
 
 **`--packages-up-to` to build, `--packages-select` to test.** A package that
 depends on a sibling in the same repository cannot configure under
