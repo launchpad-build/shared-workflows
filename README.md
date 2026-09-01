@@ -215,7 +215,7 @@ already carries the full dependency set and you save about ten seconds.
 **rosdep is scoped to the build closure, not to the base paths.** The step asks
 colcon which packages `--packages-up-to` will build and gives rosdep those paths,
 because a real repository declares dependencies the selected packages never need.
-Over the 44 product packages, crawling the base paths dragged in the whole moveit
+Over the 49 product packages, crawling the base paths dragged in the whole moveit
 and plansys2 set for packages the build never touched, and it failed outright on
 `behaviortree_ros2`, a source-only fork with no rosdistro entry, declared by two
 packages that were not selected. Scoping to the closure cut the step from a
@@ -267,7 +267,7 @@ on a new push, and leaves the jobs within one run alone.
 mixed-case CMake command produced fourteen `lint_cmake` failures on a single file,
 so a long linter run would otherwise bury the summary. The cap is global, so the
 list is filled by taking one failure from each package in turn rather than by
-running through the packages in order. Over the 44 product packages the ordered
+running through the packages in order. Over the 49 product packages the ordered
 version filled all twenty bullets from `digitool_job_tracker`'s linter failures
 alone, and the single genuine unit-test failures in `digitool_health_monitor` and
 `digitool_bist` appeared nowhere in the summary or the annotations. Interleaving
