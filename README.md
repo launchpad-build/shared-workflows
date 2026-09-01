@@ -167,6 +167,26 @@ the caller's own `uses:` line and fails the job when they differ. The scripts ar
 therefore always pinned, and a drifting pin is a loud failure rather than a quiet
 one.
 
+**Docker by hand, not a job-level `container:`.** A `container:` block needs
+`credentials` to pull the private default image, and those credentials cannot be
+empty. A password that resolves to an empty string kills the job before any step
+runs, with `The template is not valid ... Unexpected value ''`. The obvious
+escape is a fallback, `password: ${{ secrets.ghcr-token || github.token }}`.
+A probe run proved that fallback breaks a public image on Docker Hub. The runner
+reads the login server off the image name and logs in before it pulls. For
+`ros:jazzy-ros-base` that server is Docker Hub, which rejects a GitHub token, so
+the job dies in `Initialize containers`. The fallback holds only for `ghcr.io`,
+and even there it needs `packages: read` on the job token, which this workflow
+does not grant. Driving docker by hand serves a private image, a public image and
+any registry from one workflow.
+
+**The login gate reads a job env boolean.** The `secrets` context is not
+available in a step `if:`. A step `if: secrets.ghcr-token != ''` does worse than
+never firing: it invalidates the whole workflow file, and every run then fails
+before a job starts. The job copies the comparison into `HAS_REGISTRY_TOKEN`, and
+the login step tests `env.HAS_REGISTRY_TOKEN == 'true'`. The secret itself stays
+in the login step's own env, so it never reaches the job-wide env.
+
 **One container, not one `docker run` per step.** `rosdep install` writes into the
 running container's filesystem. A fresh container per step throws those packages
 away before the build can use them, so every step shares a single container
