@@ -55,26 +55,8 @@ uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.
 container on every pull request. A failing test fails the check, and the run
 summary names each failing test.
 
-```yaml
-name: Build and test on pull request
-
-on:
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  build-and-test:
-    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
-    secrets:
-      ghcr-token: ${{ secrets.GHCR_READ_TOKEN }}
-```
+`setup/bootstrap.sh --build-and-test` writes the caller from
+`setup/templates/.github/workflows/build-and-test-on-pr.yml`.
 
 | Input | Default | Description |
 |-------|---------|-------------|
