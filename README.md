@@ -97,6 +97,7 @@ with the public `ros:jazzy-ros-base`.
 | `install-dependencies` | `true` | Run `rosdep install` over the crawled packages before building |
 | `colcon-build-args` | empty | Extra arguments appended to `colcon build` |
 | `colcon-test-args` | empty | Extra arguments appended to `colcon test` |
+| `timeout-minutes` | `60` | Minutes the job may run before it is cancelled |
 
 ### What the job does
 
