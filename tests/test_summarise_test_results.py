@@ -1,6 +1,5 @@
 """Unit tests for the build-and-test result summariser."""
 
-import os
 import sys
 import tempfile
 import unittest
@@ -52,9 +51,6 @@ class SummariserTestCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.build_root = Path(self.tmp.name) / "build"
-        self.previous = Path.cwd()
-        os.chdir(self.tmp.name)
-        self.addCleanup(lambda: os.chdir(self.previous))
 
     def write_result(self, package, name, body):
         """Place one result file where colcon and ament write them."""
