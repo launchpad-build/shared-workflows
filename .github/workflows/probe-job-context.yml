@@ -1,0 +1,18 @@
+name: Probe job context
+
+on:
+  push:
+    branches: [probe/DP-163-job-context]
+
+permissions:
+  contents: read
+
+jobs:
+  job-context:
+    uses: launchpad-build/shared-workflows/.github/workflows/probe-job-context-callee.yml@probe/DP-163-job-context
+
+  undeclared-input:
+    uses: launchpad-build/shared-workflows/.github/workflows/probe-job-context-callee.yml@probe/DP-163-job-context
+    with:
+      declared-input: present
+      shared-workflows-ref: probe/DP-163-job-context

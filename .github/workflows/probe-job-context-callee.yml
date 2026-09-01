@@ -1,0 +1,46 @@
+name: Probe job context callee
+
+on:
+  workflow_call:
+    inputs:
+      declared-input:
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Report the job context
+    runs-on: ubuntu-latest
+    env:
+      JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+      JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+      GITHUB_JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+      GITHUB_JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+    steps:
+      - name: Print the properties
+        run: |
+          echo "job.workflow_sha=[$JOB_WORKFLOW_SHA]"
+          echo "job.workflow_repository=[$JOB_WORKFLOW_REPOSITORY]"
+          echo "github.job_workflow_sha=[$GITHUB_JOB_WORKFLOW_SHA]"
+          echo "github.job_workflow_ref=[$GITHUB_JOB_WORKFLOW_REF]"
+          echo "inline job.workflow_sha=[${{ job.workflow_sha }}]"
+          echo "inline job.workflow_repository=[${{ job.workflow_repository }}]"
+          echo "github.sha=[${{ github.sha }}]"
+          echo "github.repository=[${{ github.repository }}]"
+
+      - name: Check out the callee repository at its own sha
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .callee
+          persist-credentials: false
+
+      - name: Confirm the callee scripts are on disk at that sha
+        run: |
+          git -C .callee rev-parse HEAD
+          ls .callee/scripts/build-and-test
