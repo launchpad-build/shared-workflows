@@ -1,0 +1,65 @@
+name: Probe ghcr username
+
+on:
+  push:
+    branches: [probe/DP-163-container-job]
+
+permissions:
+  contents: read
+
+jobs:
+  usernames:
+    name: Which login user name ghcr accepts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report the actor and the token shape
+        env:
+          TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          echo "github.actor is ${{ github.actor }}"
+          echo "github.triggering_actor is ${{ github.triggering_actor }}"
+          echo "token length ${#TOKEN}"
+          echo "token empty: ${{ secrets.GHCR_READ_TOKEN == '' }}"
+
+      - name: Log in as github.actor
+        continue-on-error: true
+        env:
+          TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker logout ghcr.io
+
+      - name: Log in as a name that is not the token owner
+        continue-on-error: true
+        env:
+          TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io -u not-a-real-user --password-stdin
+          docker logout ghcr.io
+
+      - name: Log in as the service account
+        continue-on-error: true
+        env:
+          TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io -u digitoolbot-star --password-stdin
+          docker logout ghcr.io
+
+      - name: Pull the private image after a non-owner login
+        continue-on-error: true
+        env:
+          TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io -u not-a-real-user --password-stdin
+          docker pull ghcr.io/launchpad-build/launchpad-ros2-jazzy:main
+
+      - name: Probe the image for build tooling
+        continue-on-error: true
+        run: |
+          docker run --rm ghcr.io/launchpad-build/launchpad-ros2-jazzy:main bash -lc '
+            echo "ros distros: $(ls /opt/ros)"
+            for tool in colcon rosdep cmake; do
+              echo "$tool: $(command -v $tool || echo missing)"
+            done
+            cat /etc/os-release | head -3
+          '
