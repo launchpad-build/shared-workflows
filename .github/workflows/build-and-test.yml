@@ -112,7 +112,7 @@ jobs:
         if: env.HAS_REGISTRY_TOKEN == 'true'
         env:
           REGISTRY: ${{ inputs.registry }}
-          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_USER: x-access-token
           REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
         run: "$SCRIPTS/registry-login.sh"
 
