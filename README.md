@@ -15,8 +15,10 @@ curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main
 |------|---------|-------------|
 | `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
 | `--ref` | `latest` | Tag or branch the caller workflows point at |
+| `--package` | none | Package to build and test on a pull request. Omit to cover every package colcon crawls. |
+| `--build-and-test` | off | Write the build-and-test caller with no package input. Not needed when `--package` is given. |
 
-This creates five files:
+This creates five files, plus a sixth with `--package` or `--build-and-test`:
 
 | File | Purpose |
 |------|---------|
@@ -25,6 +27,7 @@ This creates five files:
 | `CHANGELOG.md` | Changelog file |
 | `.github/workflows/require-news-fragment-on-pr.yml` | Caller workflow for PR checks |
 | `.github/workflows/release-on-merge.yml` | Caller workflow for releases |
+| `.github/workflows/build-and-test-on-pr.yml` | Caller workflow for colcon build and test, only with `--package` or `--build-and-test` |
 
 Commit to `main`.
 
@@ -45,6 +48,40 @@ deliberately:
 ```yaml
 uses: launchpad-build/shared-workflows/.github/workflows/release-on-merge.yml@2.0.3
 ```
+
+## Build and test on pull request
+
+`build-and-test.yml` builds and tests a repository's packages in the ROS 2
+container on every pull request. A failing test fails the check, and the run
+summary names each failing test.
+
+`setup/bootstrap.sh --build-and-test` writes the caller from
+`setup/templates/.github/workflows/build-and-test-on-pr.yml`.
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `package` | empty | Packages to cover, space-separated. Unset covers every package colcon crawls. |
+| `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
+| `base-paths` | `src` | Paths colcon crawls, space-separated |
+| `registry` | `ghcr.io` | Registry logged into before the pull |
+| `ros-distro` | `jazzy` | Distribution sourced before the build |
+| `install-dependencies` | `true` | Run `rosdep install` over the build closure |
+| `run-linters` | `false` | Run the ament style and lint tests |
+| `colcon-build-args` | empty | Extra arguments for `colcon build` |
+| `colcon-test-args` | empty | Extra arguments for `colcon test` |
+| `timeout-minutes` | `60` | Minutes before the job is cancelled |
+
+Four things to know:
+
+* Pass `ghcr-token` explicitly. `secrets: inherit` matches on name, so it passes
+  nothing. Omit it only for a public image.
+* Point `base-paths` below the outer package when the repository has a
+  `package.xml` at its root, because colcon stops descending there.
+* Linters are off because the house style disagrees with several of them. Turn
+  them on once a repository is clean.
+* The required-status-check name is the caller job id then the callee job name,
+  for example `build-and-test / Build and test`. Do not add classic branch
+  protection, it blocks the release push.
 
 ## How it works
 

@@ -6,16 +6,21 @@
 #
 # Or clone and run locally:
 #   ./bootstrap.sh [--version-source package-xml|package-json|pyproject-toml] [--ref TAG]
+#                  [--package NAME] [--build-and-test]
 set -euo pipefail
 
 SHARED_REPO="launchpad-build/shared-workflows"
 VERSION_SOURCE="package-xml"
 WORKFLOW_REF=""
+PACKAGE=""
+BUILD_AND_TEST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version-source) VERSION_SOURCE="$2"; shift 2 ;;
     --ref) WORKFLOW_REF="$2"; shift 2 ;;
+    --package) PACKAGE="$2"; BUILD_AND_TEST=1; shift 2 ;;
+    --build-and-test) BUILD_AND_TEST=1; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -61,7 +66,7 @@ fi
 # ── Caller workflows ──────────────────────────────────────────────
 mkdir -p .github/workflows
 
-export SHARED_REPO VERSION_SOURCE WORKFLOW_REF
+export SHARED_REPO VERSION_SOURCE WORKFLOW_REF PACKAGE
 
 fetch_template ".github/workflows/require-news-fragment-on-pr.yml" \
   | envsubst '${SHARED_REPO} ${WORKFLOW_REF}' \
@@ -73,6 +78,22 @@ fetch_template ".github/workflows/release-on-merge.yml" \
   > .github/workflows/release-on-merge.yml
 echo "  Created .github/workflows/release-on-merge.yml"
 
+if [ -n "$BUILD_AND_TEST" ]; then
+  # No package named means cover every package colcon crawls, which the
+  # workflow reads off an absent input, so the whole with block goes.
+  STRIP=""
+  if [ -z "$PACKAGE" ]; then
+    STRIP='/^ *with: *$/d;/^ *package: *$/d'
+  fi
+  fetch_template ".github/workflows/build-and-test-on-pr.yml" \
+    | envsubst '${SHARED_REPO} ${WORKFLOW_REF} ${PACKAGE}' \
+    | sed "$STRIP" \
+    > .github/workflows/build-and-test-on-pr.yml
+  echo "  Created .github/workflows/build-and-test-on-pr.yml"
+else
+  echo "  No --package or --build-and-test given, skipping .github/workflows/build-and-test-on-pr.yml"
+fi
+
 echo ""
 echo "Done. Files created:"
 echo "  newsfragments/.gitkeep"
@@ -80,6 +101,9 @@ echo "  towncrier.toml"
 echo "  CHANGELOG.md"
 echo "  .github/workflows/require-news-fragment-on-pr.yml"
 echo "  .github/workflows/release-on-merge.yml"
+if [ -n "$BUILD_AND_TEST" ]; then
+  echo "  .github/workflows/build-and-test-on-pr.yml"
+fi
 echo ""
 echo "Next steps:"
 echo "  1. Commit these files to your main branch"

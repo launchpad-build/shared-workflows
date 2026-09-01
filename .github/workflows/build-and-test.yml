@@ -1,0 +1,164 @@
+name: Build and test package
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: >
+          Package to build and test. Space-separated list for a repository that
+          holds more than one package. Leave it unset to build and test every
+          package colcon crawls under base-paths, so a package added to the
+          repository is covered without editing the caller.
+        type: string
+        required: false
+        default: ""
+      container-image:
+        description: Container image holding the ROS 2 build environment
+        type: string
+        required: false
+        default: ghcr.io/launchpad-build/launchpad-ros2-jazzy:main
+      base-paths:
+        description: >
+          Paths colcon crawls for packages. Space-separated list. Override it
+          when the repository has a package.xml at its root, because colcon
+          stops descending at a package.
+        type: string
+        required: false
+        default: src
+      registry:
+        description: Registry logged into before the image is pulled
+        type: string
+        required: false
+        default: ghcr.io
+      ros-distro:
+        description: ROS 2 distribution sourced before the build
+        type: string
+        required: false
+        default: jazzy
+      install-dependencies:
+        description: >
+          Run rosdep install over the crawled packages before building, so a
+          declared dependency the image does not carry is installed rather than
+          failing the build.
+        type: boolean
+        required: false
+        default: true
+      run-linters:
+        description: >
+          Run the ament style and lint tests. They are off by default: the house
+          style disagrees with several of them, so a repository that has never
+          run them reddens the check on style debt rather than on a real
+          failure. Set it to true once a repository is clean and wants CI to
+          enforce style.
+        type: boolean
+        required: false
+        default: false
+      colcon-build-args:
+        description: Extra arguments appended to colcon build
+        type: string
+        required: false
+        default: ""
+      colcon-test-args:
+        description: >
+          Extra arguments appended to colcon test. The linter exclusion is
+          appended after them, so a value carrying its own --ctest-args or
+          --pytest-args loses that group to the exclusion and the step says so.
+        type: string
+        required: false
+        default: ""
+      timeout-minutes:
+        description: Minutes the build and test job may run before it is cancelled
+        type: number
+        required: false
+        default: 60
+    secrets:
+      ghcr-token:
+        description: >
+          Token used to pull the image from a private registry. Leave it unset
+          for a public image and the job pulls without logging in.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      IMAGE: ${{ inputs.container-image }}
+      PACKAGES: ${{ inputs.package }}
+      ROS_DISTRO: ${{ inputs.ros-distro }}
+      BASE_PATHS: ${{ inputs.base-paths }}
+      WORKER: ros-build-and-test
+      SCRIPTS: ${{ github.workspace }}/.shared-workflows/scripts/build-and-test
+      HAS_REGISTRY_TOKEN: ${{ secrets.ghcr-token != '' }}
+      PACKAGE_LIST: ${{ github.workspace }}/.build-and-test-packages
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          path: src/repo
+          persist-credentials: false
+
+      # A reusable workflow does not get its own repository on disk, so the
+      # scripts it runs are checked out here. The job context names this
+      # workflow file's own repository and commit, so the scripts always come
+      # from the same commit as the workflow, never from a moving tag.
+      - name: Check out the workflow scripts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .shared-workflows
+          persist-credentials: false
+
+      - name: Log in to the container registry
+        if: env.HAS_REGISTRY_TOKEN == 'true'
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USER: x-access-token
+          REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
+        run: "$SCRIPTS/registry-login.sh"
+
+      - name: Pull the container image
+        run: "$SCRIPTS/pull-image.sh"
+
+      - name: Start the build container
+        run: "$SCRIPTS/start-container.sh"
+
+      - name: Resolve the packages to build
+        run: "$SCRIPTS/resolve-packages.sh"
+
+      - name: Install the declared dependencies
+        if: inputs.install-dependencies
+        run: "$SCRIPTS/install-dependencies.sh"
+
+      - name: Build the package
+        id: build
+        env:
+          BUILD_ARGS: ${{ inputs.colcon-build-args }}
+        run: "$SCRIPTS/build-packages.sh"
+
+      - name: Confirm every resolved package built
+        run: "$SCRIPTS/check-build-directories.sh"
+
+      - name: Test the package
+        id: test
+        env:
+          TEST_ARGS: ${{ inputs.colcon-test-args }}
+          RUN_LINTERS: ${{ inputs.run-linters }}
+        run: "$SCRIPTS/run-tests.sh"
+
+      - name: Summarise the test results
+        if: always()
+        env:
+          TEST_RC: ${{ steps.test.outputs.rc }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: "$SCRIPTS/summarise-results.sh"
+
+      - name: Stop the build container
+        if: always()
+        run: "$SCRIPTS/stop-container.sh"

@@ -1,0 +1,20 @@
+name: Build and test on pull request
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    uses: ${SHARED_REPO}/.github/workflows/build-and-test.yml@${WORKFLOW_REF}
+    with:
+      package: ${PACKAGE}
+    secrets:
+      ghcr-token: ${{ secrets.GHCR_READ_TOKEN }}
