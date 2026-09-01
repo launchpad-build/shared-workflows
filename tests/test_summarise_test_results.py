@@ -241,6 +241,18 @@ class SummariserTestCase(unittest.TestCase):
         _, code = self.summarise(["demo_pkg", "other_pkg"], TEST_RC="5")
         self.assertEqual(code, 1)
 
+    def test_a_readable_event_log_does_not_disable_the_exit_code_check(self):
+        self.write_result("demo_pkg", "empty.xml", EMPTY_SUITE)
+        self.write_events({"demo_pkg": 0})
+        _, code = self.summarise(["demo_pkg"], TEST_RC="1")
+        self.assertEqual(code, 1)
+
+    def test_only_the_no_tests_code_is_excused_at_the_run_level(self):
+        self.write_result("demo_pkg", "empty.xml", EMPTY_SUITE)
+        self.write_events({"demo_pkg": 5})
+        _, code = self.summarise(["demo_pkg"], TEST_RC="1")
+        self.assertEqual(code, 1)
+
     def test_an_unreadable_result_file_is_never_excused_by_the_exit_code(self):
         self.write_result("demo_pkg", "broken.xml", TRUNCATED)
         self.write_events({"demo_pkg": 5})
