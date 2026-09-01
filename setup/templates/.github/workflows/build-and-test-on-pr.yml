@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     uses: ${SHARED_REPO}/.github/workflows/build-and-test.yml@${WORKFLOW_REF}

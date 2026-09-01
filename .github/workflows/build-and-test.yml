@@ -72,12 +72,6 @@ on:
 permissions:
   contents: read
 
-# The group carries the caller workflow name and the package, so neither two
-# caller workflows nor two jobs in one caller cancel each other on the same ref.
-concurrency:
-  group: build-and-test-${{ github.workflow }}-${{ github.ref }}-${{ inputs.package }}
-  cancel-in-progress: true
-
 jobs:
   build-and-test:
     name: Build and test

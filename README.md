@@ -66,6 +66,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
@@ -197,6 +201,13 @@ whatever it holds, so the suite name alone reports
 before writing its XML leaves no failing case to report. Reporting "no tests
 found" and passing would turn a crash into a green check. A result file that
 cannot be parsed fails the job for the same reason.
+
+**The caller cancels its own superseded runs.** The concurrency group lives in the
+caller, not in this workflow. `inputs` is empty while a workflow-level group is
+evaluated in a callee, so a group keyed on `inputs.package` collapsed to a bare
+ref and two jobs in one caller still cancelled each other. Keying on
+`github.workflow` and `github.ref` in the caller cancels the whole superseded run
+on a new push, and leaves the jobs within one run alone.
 
 **Failure bullets are capped at twenty.** One mixed-case CMake command produced
 fourteen `lint_cmake` failures on a single file. A long linter run would otherwise
