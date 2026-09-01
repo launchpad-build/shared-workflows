@@ -87,6 +87,7 @@ jobs:
       CALLER_PATH: src/repo
       WORKFLOW_PATH: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml
       SCRIPTS_REF: ${{ inputs.shared-workflows-ref }}
+      HAS_REGISTRY_TOKEN: ${{ secrets.ghcr-token != '' }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v4
@@ -108,7 +109,7 @@ jobs:
         run: "$SCRIPTS/verify-scripts-ref.sh"
 
       - name: Log in to the container registry
-        if: secrets.ghcr-token != ''
+        if: env.HAS_REGISTRY_TOKEN == 'true'
         env:
           REGISTRY: ${{ inputs.registry }}
           REGISTRY_USER: ${{ github.actor }}

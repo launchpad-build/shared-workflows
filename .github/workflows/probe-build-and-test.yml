@@ -1,0 +1,33 @@
+name: Probe build and test
+
+on:
+  push:
+    branches: [probe/DP-163-container-job]
+
+permissions:
+  contents: read
+
+jobs:
+  passing:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-container-job
+    with:
+      package: probe_pass_pkg
+      shared-workflows-ref: probe/DP-163-container-job
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages/probe_pass_pkg
+
+  failing:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-container-job
+    with:
+      package: probe_fail_pkg
+      shared-workflows-ref: probe/DP-163-container-job
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages/probe_fail_pkg
+
+  mistyped-package:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-container-job
+    with:
+      package: probe_typo_pkg
+      shared-workflows-ref: probe/DP-163-container-job
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages/probe_pass_pkg
