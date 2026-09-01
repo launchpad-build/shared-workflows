@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -48,8 +49,6 @@ class SummariserTestCase(unittest.TestCase):
     """Drives the summariser over result trees written into a temp directory."""
 
     def setUp(self):
-        import tempfile
-
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.build_root = Path(self.tmp.name) / "build"

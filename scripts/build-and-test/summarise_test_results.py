@@ -11,6 +11,7 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from typing import Mapping, Optional, Sequence
 
 MAX_LISTED_FAILURES = 20
 
@@ -24,11 +25,11 @@ class PackageResult:
     passed: int = 0
     failed: int = 0
     skipped: int = 0
-    failures: list = field(default_factory=list)
-    unreadable: list = field(default_factory=list)
+    failures: list[tuple[str, str]] = field(default_factory=list)
+    unreadable: list[str] = field(default_factory=list)
 
 
-def result_files(package, build_root="build"):
+def result_files(package: str, build_root: str = "build") -> set[str]:
     """Result XML colcon and ament write, and nothing else.
 
     A recursive glob over the whole build directory also picks up
@@ -42,20 +43,20 @@ def result_files(package, build_root="build"):
     return paths
 
 
-def case_label(suite, case):
+def case_label(suite: ET.Element, case: ET.Element) -> str:
     """Name a case the way a reader would look for it in the log."""
     owner = case.get("classname") or suite.get("name") or "suite"
     return f"{owner}.{case.get('name') or 'case'}"
 
 
-def failure_detail(problem):
+def failure_detail(problem: ET.Element) -> str:
     """First line of a failure message, or a stand-in when there is none."""
     detail = (problem.get("message") or (problem.text or "")).strip()
     result = detail.splitlines()[0] if detail else "no detail reported"
     return result
 
 
-def tally_case(result, suite, case):
+def tally_case(result: PackageResult, suite: ET.Element, case: ET.Element) -> None:
     """Fold one testcase element into the package result."""
     result.total += 1
     problems = case.findall("failure") + case.findall("error")
@@ -69,7 +70,7 @@ def tally_case(result, suite, case):
         result.passed += 1
 
 
-def read_package(package, build_root="build"):
+def read_package(package: str, build_root: str = "build") -> PackageResult:
     """Read every result file for one package into a PackageResult."""
     result = PackageResult(name=package)
     for path in sorted(result_files(package, build_root)):
@@ -86,7 +87,7 @@ def read_package(package, build_root="build"):
     return result
 
 
-def failure_bullets(failures):
+def failure_bullets(failures: Sequence[tuple[str, str]]) -> list[str]:
     """Bullet list of failing tests, capped so a linter run cannot bury it."""
     lines = ["", "**Failing tests**", ""]
     for name, first_line in failures[:MAX_LISTED_FAILURES]:
@@ -97,7 +98,7 @@ def failure_bullets(failures):
     return lines
 
 
-def results_table(results):
+def results_table(results: Sequence[PackageResult]) -> list[str]:
     """Markdown table with one row per selected package."""
     lines = [
         "| Package | Total | Passed | Failed | Skipped |",
@@ -111,14 +112,16 @@ def results_table(results):
     return lines
 
 
-def unreadable_bullets(unreadable):
+def unreadable_bullets(unreadable: Sequence[str]) -> list[str]:
     """Bullet list of result files that could not be parsed."""
     lines = ["", "**Unreadable result files**", ""]
     lines.extend(f"- {path}" for path in unreadable)
     return lines
 
 
-def build_summary(results, build_outcome, test_outcome):
+def build_summary(
+    results: Sequence[PackageResult], build_outcome: str, test_outcome: str
+) -> str:
     """Markdown written to the step summary for this run."""
     lines = ["### Test results", ""]
     if build_outcome != "success":
@@ -136,7 +139,7 @@ def build_summary(results, build_outcome, test_outcome):
     return "\n".join(lines) + "\n"
 
 
-def failure_annotations(failures):
+def failure_annotations(failures: Sequence[tuple[str, str]]) -> list[str]:
     """Annotation lines naming the failing tests, capped like the summary."""
     lines = [
         f"::error::{name}: {first_line}"
@@ -147,14 +150,19 @@ def failure_annotations(failures):
     return lines
 
 
-def unreadable_annotations(unreadable):
+def unreadable_annotations(unreadable: Sequence[str]) -> list[str]:
     """Annotation lines naming the result files that could not be parsed."""
     return [
         f"::error::Result file could not be parsed: {path}" for path in unreadable
     ]
 
 
-def build_annotations(results, build_outcome, test_outcome, test_rc):
+def build_annotations(
+    results: Sequence[PackageResult],
+    build_outcome: str,
+    test_outcome: str,
+    test_rc: str,
+) -> tuple[list[str], int]:
     """Annotation lines and the exit code the job should end on."""
     failures = [failure for result in results for failure in result.failures]
     unreadable = [path for result in results for path in result.unreadable]
@@ -185,7 +193,7 @@ def build_annotations(results, build_outcome, test_outcome, test_rc):
     return outcome
 
 
-def main(environ=None):
+def main(environ: Optional[Mapping[str, str]] = None) -> int:
     """Read the results named by the environment and report on them."""
     env = os.environ if environ is None else environ
     packages = env.get("PACKAGES", "").split()
