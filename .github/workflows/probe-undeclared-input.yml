@@ -1,4 +1,4 @@
-name: Probe job context
+name: Probe undeclared input
 
 on:
   push:
@@ -8,5 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  job-context:
+  undeclared-input:
     uses: launchpad-build/shared-workflows/.github/workflows/probe-job-context-callee.yml@probe/DP-163-job-context
+    with:
+      declared-input: present
+      shared-workflows-ref: probe/DP-163-job-context
