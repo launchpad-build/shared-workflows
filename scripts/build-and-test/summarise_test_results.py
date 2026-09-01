@@ -10,8 +10,8 @@ import glob
 import os
 import sys
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Sequence
 
 MAX_LISTED_FAILURES = 20
 
@@ -193,7 +193,7 @@ def build_annotations(
     return outcome
 
 
-def main(environ: Optional[Mapping[str, str]] = None) -> int:
+def main(environ: Mapping[str, str] | None = None) -> int:
     """Read the results named by the environment and report on them."""
     env = os.environ if environ is None else environ
     packages = env.get("PACKAGES", "").split()
