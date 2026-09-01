@@ -44,4 +44,10 @@ docker exec -e TEST_ARGS "$WORKER" bash -c '
 ' colcon-test "${exclude[@]}"
 rc=$?
 echo "rc=$rc" >> "$GITHUB_OUTPUT"
-exit "$rc"
+
+# The step records the code and succeeds. The summary step is the single
+# verdict: it reads the result files and colcon's per-package status, and fails
+# the job on what it finds. Failing here as well would be an unappealable red,
+# and colcon's code is not a verdict on its own. It returns 0 with a failing
+# test, and non-zero for a package that simply had no test left to collect.
+exit 0

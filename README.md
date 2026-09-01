@@ -118,7 +118,7 @@ another user, so naming it there would only mislead.
 5. Runs `rosdep install` over the closure `--packages-up-to` will build, unless `install-dependencies` is false.
 6. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
 7. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
-8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, excluding the ament linters unless `run-linters` is true, then `colcon test-result --all --verbose`.
+8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, excluding the ament linters unless `run-linters` is true, then `colcon test-result --all --verbose`. The step records colcon's exit code and succeeds, leaving the verdict to the summary step.
 9. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
 10. Exits non-zero when any test fails, which fails the check.
 
@@ -249,6 +249,12 @@ whatever it holds, so the suite name alone reports
 before writing its XML leaves no failing case to report. Reporting "no tests
 found" and passing would turn a crash into a green check. A result file that
 cannot be parsed fails the job for the same reason.
+
+**The summary step is the only verdict.** The test step records colcon's exit
+code as a step output and succeeds. Failing there as well would be an
+unappealable red, and colcon's code is not a verdict on its own: it returns zero
+with a failing test, and non-zero for a package that merely had no test left to
+collect. Both signals reach the summary step, which decides and fails the job.
 
 **The caller cancels its own superseded runs.** The concurrency group lives in the
 caller, not in this workflow. `inputs` is empty while a workflow-level group is
