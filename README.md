@@ -85,10 +85,16 @@ cover it, because inheritance matches on name and the organisation secret is
 called `GHCR_READ_TOKEN`, so pass it through explicitly. Omit the secret and the
 job pulls without logging in, which only works for a public image.
 
-`GHCR_READ_TOKEN` is a repository secret, not an organisation one. A repository
-adopting this workflow needs it added, or it cannot pull the default image.
-`versioning-demo` has no such secret, so its caller overrides `container-image`
-with the public `ros:jazzy-ros-base`.
+`GHCR_READ_TOKEN` is an organisation secret available to every repository, so a
+repository adopting this workflow needs nothing added. It is a classic personal
+access token carrying `read:packages`, which is the only credential ghcr.io
+accepts for a private pull. Proven in real CI: the private default image pulls,
+builds and tests green.
+
+ghcr.io ignores the user name on a token login, so the login step passes the
+literal `x-access-token` rather than `github.actor`. The actor is whoever
+triggered the run, which is not the token owner in a run triggered by a bot or by
+another user, so naming it there would only mislead.
 
 | Input | Default | Description |
 |-------|---------|-------------|
