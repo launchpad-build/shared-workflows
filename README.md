@@ -75,7 +75,6 @@ jobs:
     uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@latest
     with:
       package: my_package
-      shared-workflows-ref: latest
     secrets:
       ghcr-token: ${{ secrets.GHCR_READ_TOKEN }}
 ```
@@ -99,7 +98,6 @@ another user, so naming it there would only mislead.
 | Input | Default | Description |
 |-------|---------|-------------|
 | `package` | required | Package to build and test. Space-separated for several packages in one repository. |
-| `shared-workflows-ref` | required | Ref this workflow is called at, repeated so its scripts come from the same commit. |
 | `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
 | `base-paths` | `src` | Paths colcon crawls for packages. Space-separated for several roots. |
 | `registry` | `ghcr.io` | Registry logged into before the image is pulled |
@@ -113,8 +111,8 @@ another user, so naming it there would only mislead.
 ### What the job does
 
 1. Checks the repository out into `src/repo`.
-2. Checks `shared-workflows` out into `.shared-workflows` at `shared-workflows-ref`,
-   so its scripts are on disk, and fails when that ref disagrees with the caller.
+2. Checks itself out into `.shared-workflows` at its own commit, read off the
+   `job` context, so its scripts are on disk.
 3. Logs into the registry when `ghcr-token` is set, then pulls the image.
 4. Starts one long-lived container and runs every later step in it with `docker exec`.
 5. Runs `rosdep install` over the closure `--packages-up-to` will build, unless `install-dependencies` is false.
@@ -163,16 +161,26 @@ step aborts the action, so the `if: always()` summary and container teardown wou
 not run, and the summary reads `steps.build.outcome` and `steps.test.outcome`,
 which a composite action does not expose.
 
-**The caller states the ref, and the job checks it.** Nothing inside a reusable
-workflow names its own ref. `github.job_workflow_sha` and
-`github.job_workflow_ref` are OIDC claims, and a probe run confirmed both
+**The job context names the workflow's own commit.** A called workflow now reads
+its own repository and commit from `job.workflow_repository` and
+`job.workflow_sha`, and checks its scripts out from there. The scripts therefore
+come from the same commit as the workflow file, whatever ref the caller pinned,
+including a moving tag such as `latest`. The caller says nothing about it and
+there is nothing to keep in step.
+
+The two lookalikes on the `github` context do not work. `github.job_workflow_sha`
+and `github.job_workflow_ref` are OIDC claims, and a probe run confirmed both
 evaluate to the empty string in a callee's steps, which silently sends
-`actions/checkout` to the default branch. A script cannot resolve the ref either,
-because that script is not on disk yet. So the caller repeats the ref as
-`shared-workflows-ref`, and the first step after the checkout compares it against
-the caller's own `uses:` line and fails the job when they differ. The scripts are
-therefore always pinned, and a drifting pin is a loud failure rather than a quiet
-one.
+`actions/checkout` to the default branch. The `job` properties are different
+properties on a different context, added in April 2026, and a probe run confirmed
+both are populated and correct. They are not available in a job-level `env:`
+block, only in a step, so they are read at the step that uses them.
+
+This replaced a required `shared-workflows-ref` input, which repeated the ref
+from the caller's `uses:` line, and a `verify-scripts-ref.sh` step that read the
+caller's workflow back off disk and failed the job when the two disagreed. Both
+are gone. A caller that still passes the input does not warn, it fails at
+startup with no jobs, so a caller has to drop the input in the same change.
 
 **Docker by hand, not a job-level `container:`.** A `container:` block needs
 `credentials` to pull the private default image, and those credentials cannot be
