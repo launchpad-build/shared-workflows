@@ -1,0 +1,46 @@
+name: Probe linter exclusion
+
+on:
+  push:
+    branches: [probe/DP-163-linter-exclusion]
+
+permissions:
+  contents: read
+
+jobs:
+  python-linters-skipped:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_py_pkg probe_py_lintonly_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
+
+  python-linters-on:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_py_pkg probe_py_lintonly_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
+      run-linters: true
+
+  setuppy-no-tests:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_py_setuppy_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
+
+  ctest-failure-names-the-package:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_ctest_nocase_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
+
+  caller-test-args:
+    uses: launchpad-build/shared-workflows/.github/workflows/build-and-test.yml@probe/DP-163-linter-exclusion
+    with:
+      package: probe_py_pkg
+      container-image: ros:jazzy-ros-base
+      base-paths: src/repo/probe/packages
+      colcon-test-args: --ctest-args -R nothing

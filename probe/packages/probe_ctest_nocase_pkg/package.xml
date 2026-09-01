@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>probe_ctest_nocase_pkg</name>
+  <version>0.0.0</version>
+  <description>Throwaway package whose test fails without writing a result file</description>
+  <maintainer email="estewart@launchpad.build">Ewan Stewart</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
