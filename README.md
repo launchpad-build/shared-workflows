@@ -15,9 +15,10 @@ curl -sL https://raw.githubusercontent.com/launchpad-build/shared-workflows/main
 |------|---------|-------------|
 | `--version-source` | `package-xml` | Manifest format: `package-xml`, `package-json`, or `pyproject-toml` |
 | `--ref` | `latest` | Tag or branch the caller workflows point at |
-| `--package` | none | Package to build and test on a pull request. Omit to skip the build-and-test caller. |
+| `--package` | none | Package to build and test on a pull request. Omit to cover every package colcon crawls. |
+| `--build-and-test` | off | Write the build-and-test caller with no package input. Not needed when `--package` is given. |
 
-This creates five files, plus a sixth when `--package` is given:
+This creates five files, plus a sixth with `--package` or `--build-and-test`:
 
 | File | Purpose |
 |------|---------|
@@ -26,7 +27,7 @@ This creates five files, plus a sixth when `--package` is given:
 | `CHANGELOG.md` | Changelog file |
 | `.github/workflows/require-news-fragment-on-pr.yml` | Caller workflow for PR checks |
 | `.github/workflows/release-on-merge.yml` | Caller workflow for releases |
-| `.github/workflows/build-and-test-on-pr.yml` | Caller workflow for colcon build and test, only with `--package` |
+| `.github/workflows/build-and-test-on-pr.yml` | Caller workflow for colcon build and test, only with `--package` or `--build-and-test` |
 
 Commit to `main`.
 
@@ -97,7 +98,7 @@ another user, so naming it there would only mislead.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `package` | required | Package to build and test. Space-separated for several packages in one repository. |
+| `package` | empty | Package to build and test. Space-separated for several packages in one repository. Leave it unset to cover every package colcon crawls. |
 | `container-image` | `ghcr.io/launchpad-build/launchpad-ros2-jazzy:main` | Image holding the ROS 2 build environment |
 | `base-paths` | `src` | Paths colcon crawls for packages. Space-separated for several roots. |
 | `registry` | `ghcr.io` | Registry logged into before the image is pulled |
@@ -115,12 +116,13 @@ another user, so naming it there would only mislead.
    `job` context, so its scripts are on disk.
 3. Logs into the registry when `ghcr-token` is set, then pulls the image.
 4. Starts one long-lived container and runs every later step in it with `docker exec`.
-5. Runs `rosdep install` over the closure `--packages-up-to` will build, unless `install-dependencies` is false.
-6. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first.
-7. Fails when a selected package produced no build directory, so a typo in `package` cannot pass as a clean run.
-8. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, excluding the ament linters unless `run-linters` is true, then `colcon test-result --all --verbose`. The step records colcon's exit code and succeeds, leaving the verdict to the summary step.
-9. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
-10. Exits non-zero when any test fails, which fails the check.
+5. Resolves the packages the run covers: the `package` input when it is set, otherwise `colcon list` over `base-paths`. The list goes to a file every later step reads.
+6. Runs `rosdep install` over the closure `--packages-up-to` will build, unless `install-dependencies` is false.
+7. Runs `colcon build --packages-up-to <package>`, so a sibling the package depends on builds first. With no `package` input the selection flag is left off and colcon builds everything it crawled.
+8. Fails when a resolved package produced no build directory, so a typo in `package` cannot pass as a clean run.
+9. Runs `colcon test --packages-select <package> --return-code-on-test-failure`, excluding the ament linters unless `run-linters` is true, then `colcon test-result --all --verbose`. The step records colcon's exit code and succeeds, leaving the verdict to the summary step.
+10. Parses the result XML under `build/<package>` and writes a row per package to the run summary, with a bullet per failing test naming the case and the first line of the failure.
+11. Exits non-zero when any test fails, which fails the check.
 
 ### Why the job is shaped this way
 
@@ -136,8 +138,9 @@ the environment, so no workflow input is ever interpolated into a command line.
 | `pull-image.sh` | Pull the container image |
 | `start-container.sh` | Start the build container |
 | `install-dependencies.sh` | Install the declared dependencies |
+| `resolve-packages.sh` | Resolve the packages to build |
 | `build-packages.sh` | Build the package |
-| `check-build-directories.sh` | Confirm every selected package built |
+| `check-build-directories.sh` | Confirm every resolved package built |
 | `run-tests.sh` | Test the package |
 | `summarise-results.sh`, `summarise_test_results.py` | Summarise the test results |
 | `stop-container.sh` | Stop the build container |
@@ -146,6 +149,32 @@ the environment, so no workflow input is ever interpolated into a command line.
 covers the recorded edge cases: no test cases, a truncated result file, a skipped
 test, a skipped test step, a mixed run, the capped bullet list and a named failing
 case. Run it with `python3 -m unittest discover -s tests`.
+
+**`package` is optional, and leaving it out is usually right.** With no input the
+job builds and tests every package colcon crawls under `base-paths`, so a package
+added to the repository is covered without anyone editing the caller. An explicit
+list is worth keeping in three cases: a repository holding a package the check
+should not cover, such as one whose dependencies do not resolve in the container;
+a repository large enough that building only part of it keeps the check fast; and
+a repository vendoring a `package.xml` as test data, which the crawl checks below
+reject.
+
+**With no list, the crawl is checked instead of the selection.** The
+build-directory guard is what makes a bad `base-paths` visible, and it needs
+something to check against. The `package` input is that something, so without it
+the check moves to the crawl itself, in `resolve-packages.sh`:
+
+* a crawl finding no package at all fails, which catches a `base-paths` naming a
+  directory that holds nothing;
+* a crawl that stopped at a package with more `package.xml` files buried under it
+  fails, which catches the default `base-paths` in a repository carrying a
+  `package.xml` at its root. colcon does not descend below a package, so it would
+  otherwise build that one package and report a clean run;
+* every crawled package must still produce a build directory, and an empty or
+  missing package list fails rather than passing vacuously.
+
+Together those cover what the per-package guard covers on the explicit path,
+which stays exactly as it was.
 
 **The scripts are checked out, not turned into a composite action.** A reusable
 workflow never gets its own repository on disk, so a script file in
@@ -358,8 +387,11 @@ blocks the release push.
 ### Rollout
 
 `versioning-demo` carries the reference implementation. The rest of the estate
-adopts the same caller, with the `package` input set to that repository's
-packages:
+adopts the same caller. Leaving the `package` input out covers every package the
+repository holds, which is the right default: a package added later is tested
+without anyone editing the caller. The lists below are what each repository holds
+today, and are worth setting only where the check should deliberately cover less
+than the whole repository:
 
 | Repository | `package` input |
 |------------|-----------------|
