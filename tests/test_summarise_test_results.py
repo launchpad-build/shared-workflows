@@ -128,6 +128,21 @@ class SummariserTestCase(unittest.TestCase):
             annotations,
         )
 
+    def test_a_failure_and_an_unreadable_file_are_both_annotated(self):
+        self.write_result("demo_pkg", "failing.xml", FAILING_SUITE)
+        self.write_result("demo_pkg", "broken.xml", TRUNCATED)
+        results = [summariser.read_package("demo_pkg", str(self.build_root))]
+        annotations, code = summariser.build_annotations(
+            results, "success", "success", "0"
+        )
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("demo_pkg.AdderTest.addsZero" in line for line in annotations)
+        )
+        self.assertTrue(
+            any("could not be parsed" in line for line in annotations)
+        )
+
     def test_a_nonzero_exit_code_with_no_failing_case_still_fails(self):
         self.write_result("demo_pkg", "passing.xml", PASSING_SUITE)
         _, code = self.summarise(["demo_pkg"], TEST_RC="134")

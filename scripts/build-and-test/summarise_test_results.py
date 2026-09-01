@@ -136,10 +136,29 @@ def build_summary(results, build_outcome, test_outcome):
     return "\n".join(lines) + "\n"
 
 
+def failure_annotations(failures):
+    """Annotation lines naming the failing tests, capped like the summary."""
+    lines = [
+        f"::error::{name}: {first_line}"
+        for name, first_line in failures[:MAX_LISTED_FAILURES]
+    ]
+    if failures:
+        lines.append(f"::error::{len(failures)} test(s) failed.")
+    return lines
+
+
+def unreadable_annotations(unreadable):
+    """Annotation lines naming the result files that could not be parsed."""
+    return [
+        f"::error::Result file could not be parsed: {path}" for path in unreadable
+    ]
+
+
 def build_annotations(results, build_outcome, test_outcome, test_rc):
     """Annotation lines and the exit code the job should end on."""
     failures = [failure for result in results for failure in result.failures]
     unreadable = [path for result in results for path in result.unreadable]
+    problems = failure_annotations(failures) + unreadable_annotations(unreadable)
     if build_outcome != "success":
         outcome = (["::error::The build did not complete, so no tests ran."], 1)
     elif test_outcome == "skipped":
@@ -147,18 +166,8 @@ def build_annotations(results, build_outcome, test_outcome, test_rc):
             ["::error::The tests did not run. See the failed step in the job log."],
             1,
         )
-    elif failures:
-        lines = [
-            f"::error::{name}: {first_line}"
-            for name, first_line in failures[:MAX_LISTED_FAILURES]
-        ]
-        lines.append(f"::error::{len(failures)} test(s) failed.")
-        outcome = (lines, 1)
-    elif unreadable:
-        outcome = (
-            [f"::error::Result file could not be parsed: {path}" for path in unreadable],
-            1,
-        )
+    elif problems:
+        outcome = (problems, 1)
     elif test_rc not in ("", "0"):
         # A crash before any result file is written leaves no failing case to
         # report, so the exit code is the only signal left. Check it whether or
