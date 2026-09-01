@@ -1,0 +1,28 @@
+name: Test shared workflows
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests and shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the unit tests
+        run: python3 -m unittest discover -s tests
+
+      - name: Lint the build and test scripts
+        run: shellcheck scripts/build-and-test/*.sh
