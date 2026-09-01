@@ -1,0 +1,32 @@
+name: Probe Docker Hub credentials
+
+on:
+  push:
+    branches: [probe/DP-163-container-job]
+
+permissions:
+  contents: read
+
+jobs:
+  with-fallback-creds:
+    name: Docker Hub image with a github.token fallback
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ros:jazzy-ros-base
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_READ_TOKEN || github.token }}
+    steps:
+      - name: Report the container
+        run: cat /etc/os-release
+
+  no-creds:
+    name: Docker Hub image with no credentials
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ros:jazzy-ros-base
+    steps:
+      - name: Report the container
+        run: cat /etc/os-release

@@ -1,0 +1,26 @@
+name: Probe a job env boolean in a step if
+
+on:
+  push:
+    branches: [probe/DP-163-container-job]
+
+permissions:
+  contents: read
+
+jobs:
+  env-boolean-in-step-if:
+    name: A step if reading a job env boolean
+    runs-on: ubuntu-latest
+    env:
+      HAS_REGISTRY_TOKEN: ${{ secrets.GHCR_READ_TOKEN != '' }}
+    steps:
+      - name: Runs when the boolean is false
+        if: env.HAS_REGISTRY_TOKEN == 'false'
+        run: echo "the false branch fired"
+
+      - name: Runs when the boolean is true
+        if: env.HAS_REGISTRY_TOKEN == 'true'
+        run: echo "the true branch fired"
+
+      - name: Report the value
+        run: echo "HAS_REGISTRY_TOKEN=$HAS_REGISTRY_TOKEN"

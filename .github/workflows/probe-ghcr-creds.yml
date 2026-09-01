@@ -1,0 +1,36 @@
+name: Probe ghcr credentials
+
+on:
+  push:
+    branches: [probe/DP-163-container-job]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  public-image:
+    name: Public ghcr image with a github.token fallback
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-24.04
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_READ_TOKEN || github.token }}
+    steps:
+      - name: Report the container
+        run: cat /etc/os-release
+
+  private-image:
+    name: Private ghcr image with the job token
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ghcr.io/launchpad-build/launchpad-ros2-jazzy:main
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_READ_TOKEN || github.token }}
+    steps:
+      - name: Report the container
+        run: cat /etc/os-release
