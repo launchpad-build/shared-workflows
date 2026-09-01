@@ -1,0 +1,36 @@
+name: Probe the build directory guard
+
+on:
+  push:
+    branches: [probe/DP-163-container-job]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: The guard fails on a missing build directory
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: A present directory passes
+        env:
+          PACKAGES: probe_pass_pkg
+          BUILD_ROOT: ${{ github.workspace }}/probe/fake-build
+        run: |
+          mkdir -p "$BUILD_ROOT/probe_pass_pkg"
+          scripts/build-and-test/check-build-directories.sh
+          echo "guard passed as expected"
+
+      - name: A missing directory fails
+        env:
+          PACKAGES: probe_pass_pkg probe_typo_pkg
+          BUILD_ROOT: ${{ github.workspace }}/probe/fake-build
+        run: |
+          if scripts/build-and-test/check-build-directories.sh; then
+            echo "the guard did not fail"
+            exit 1
+          fi
+          echo "guard failed as expected"
