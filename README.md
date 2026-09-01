@@ -248,9 +248,15 @@ ref and two jobs in one caller still cancelled each other. Keying on
 `github.workflow` and `github.ref` in the caller cancels the whole superseded run
 on a new push, and leaves the jobs within one run alone.
 
-**Failure bullets are capped at twenty.** One mixed-case CMake command produced
-fourteen `lint_cmake` failures on a single file. A long linter run would otherwise
-bury the summary.
+**Failure bullets are capped at twenty, taken a package at a time in turn.** One
+mixed-case CMake command produced fourteen `lint_cmake` failures on a single file,
+so a long linter run would otherwise bury the summary. The cap is global, so the
+list is filled by taking one failure from each package in turn rather than by
+running through the packages in order. Over the 44 product packages the ordered
+version filled all twenty bullets from `digitool_job_tracker`'s linter failures
+alone, and the single genuine unit-test failures in `digitool_health_monitor` and
+`digitool_bist` appeared nowhere in the summary or the annotations. Interleaving
+puts all six failing packages inside the same twenty bullets.
 
 A package with no tests passes. Its row reads `no tests` and the run carries a
 notice annotation naming the packages that had none.

@@ -161,6 +161,27 @@ class SummariserTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("- and 5 more, see the test step log", text)
 
+    def test_a_linter_heavy_package_does_not_bury_a_later_failure(self):
+        lint_cases = "".join(
+            f'<testcase classname="noisy_pkg.Lint" name="case{index}">'
+            f'<failure message="bad"/></testcase>'
+            for index in range(25)
+        )
+        self.write_result(
+            "noisy_pkg", "lint.xml", f'<testsuite name="lint">{lint_cases}</testsuite>'
+        )
+        self.write_result(
+            "quiet_pkg",
+            "unit.xml",
+            '<testsuite name="unit">'
+            '<testcase classname="quiet_pkg.UnitTest" name="theRealFailure">'
+            '<failure message="assertion failed"/></testcase>'
+            "</testsuite>",
+        )
+        text, code = self.summarise(["noisy_pkg", "quiet_pkg"])
+        self.assertEqual(code, 1)
+        self.assertIn("quiet_pkg.UnitTest.theRealFailure", text)
+
     def test_the_ctest_xml_and_vendored_fixtures_are_not_read(self):
         stamp = self.build_root / "demo_pkg" / "Testing" / "20260831"
         stamp.mkdir(parents=True)

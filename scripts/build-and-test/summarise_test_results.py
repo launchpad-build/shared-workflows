@@ -11,6 +11,7 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
+from itertools import chain, zip_longest
 from dataclasses import dataclass, field
 
 MAX_LISTED_FAILURES = 20
@@ -87,6 +88,20 @@ def read_package(package: str, build_root: str = "build") -> PackageResult:
     return result
 
 
+def collect_failures(results: Sequence[PackageResult]) -> list[tuple[str, str]]:
+    """Every failing case, taken a package at a time in turn.
+
+    Straight concatenation lets one linter-heavy package exhaust the cap on
+    the bullet list and the annotations before a later package is reached. A
+    real repository does exactly that: over the product packages,
+    digitool_job_tracker alone raised 23 linter failures and buried the single
+    genuine unit-test failure in digitool_health_monitor. Taking one failure
+    from each package in turn keeps every failing package inside the cap.
+    """
+    rounds = zip_longest(*(result.failures for result in results))
+    return [failure for failure in chain.from_iterable(rounds) if failure is not None]
+
+
 def failure_bullets(failures: Sequence[tuple[str, str]]) -> list[str]:
     """Bullet list of failing tests, capped so a linter run cannot bury it."""
     lines = ["", "**Failing tests**", ""]
@@ -130,7 +145,7 @@ def build_summary(
         lines.append("The tests did not run. See the failed step in the job log.")
     else:
         lines.extend(results_table(results))
-        failures = [failure for result in results for failure in result.failures]
+        failures = collect_failures(results)
         unreadable = [path for result in results for path in result.unreadable]
         if failures:
             lines.extend(failure_bullets(failures))
@@ -164,7 +179,7 @@ def build_annotations(
     test_rc: str,
 ) -> tuple[list[str], int]:
     """Annotation lines and the exit code the job should end on."""
-    failures = [failure for result in results for failure in result.failures]
+    failures = collect_failures(results)
     unreadable = [path for result in results for path in result.unreadable]
     problems = failure_annotations(failures) + unreadable_annotations(unreadable)
     if build_outcome != "success":
