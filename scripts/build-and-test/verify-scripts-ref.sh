@@ -26,7 +26,7 @@ if [ ! -f "$caller_file" ]; then
   exit 1
 fi
 
-declared="$(grep -o "$WORKFLOW_PATH@[^\"' ]*" "$caller_file" | sed 's|.*@||' | sort -u)"
+declared="$(grep -o "$WORKFLOW_PATH@[^\"' ]*" "$caller_file" | sed 's|.*@||' | sort -u || true)"
 count="$(printf '%s' "$declared" | grep -c . || true)"
 
 if [ "$count" -ne 1 ]; then
