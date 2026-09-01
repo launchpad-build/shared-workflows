@@ -83,7 +83,6 @@ jobs:
       PACKAGES: ${{ inputs.package }}
       ROS_DISTRO: ${{ inputs.ros-distro }}
       BASE_PATHS: ${{ inputs.base-paths }}
-      REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
       WORKER: ros-build-and-test
       SCRIPTS: ${{ github.workspace }}/.shared-workflows/scripts/build-and-test
       CALLER_PATH: src/repo
@@ -94,6 +93,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: src/repo
+          persist-credentials: false
 
       # A reusable workflow does not get its own repository on disk, so the
       # scripts it runs are checked out here.
@@ -109,10 +109,11 @@ jobs:
         run: "$SCRIPTS/verify-scripts-ref.sh"
 
       - name: Log in to the container registry
-        if: env.REGISTRY_TOKEN != ''
+        if: secrets.ghcr-token != ''
         env:
           REGISTRY: ${{ inputs.registry }}
           REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.ghcr-token }}
         run: "$SCRIPTS/registry-login.sh"
 
       - name: Pull the container image
